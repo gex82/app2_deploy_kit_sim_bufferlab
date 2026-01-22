@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}Scenario Compare{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Scenario Compare</h1>
+        <p class="page-subtitle">Compare completion, blockers, and stranded value</p>
+    </div>
+</div>
+
+<form class="filters" method="get">
+    <div class="filter-group">
+        <label class="filter-label">Scenario A</label>
+        <select name="scenario_a" class="select-input">
+            {% for s in scenario_options %}
+            <option value="{{ s }}" {% if s == filters.scenario_a %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Scenario B</label>
+        <select name="scenario_b" class="select-input">
+            <option value="">None</option>
+            {% for s in scenario_options %}
+            <option value="{{ s }}" {% if s == filters.scenario_b %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Scenario C</label>
+        <select name="scenario_c" class="select-input">
+            <option value="">None</option>
+            {% for s in scenario_options %}
+            <option value="{{ s }}" {% if s == filters.scenario_c %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Site</label>
+        <select name="site_id" class="select-input">
+            <option value="">All Sites</option>
+            {% for site in sites %}
+            <option value="{{ site }}" {% if site == filters.site_id %}selected{% endif %}>{{ site }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week Start</label>
+        <select name="week_start" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_start %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week End</label>
+        <select name="week_end" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_end %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <button class="btn btn-secondary" type="submit">
+            <i class="fas fa-filter"></i> Compare
+        </button>
+    </div>
+</form>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Scenario Summary</h3>
+    </div>
+    {% if summaries %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Scenario</th>
+                <th>Deployable</th>
+                <th>Buildable</th>
+                <th>Blocked</th>
+                <th>Completion</th>
+                <th>Delta Completion</th>
+                <th>Delta Blocked</th>
+                <th>Top Blocker</th>
+                <th>Stranded $</th>
+                <th>Delta Stranded $</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in summaries %}
+            <tr>
+                <td>{{ row.scenario_id }}</td>
+                <td>{{ row.total_deployable }}</td>
+                <td>{{ row.total_buildable }}</td>
+                <td>{{ row.total_blocked }}</td>
+                <td>{{ row.completion_rate }}%</td>
+                <td>{{ row.delta_completion }}%</td>
+                <td>{{ row.delta_blocked }}</td>
+                <td>{{ row.top_blocker }}</td>
+                <td>${{ row.stranded_value }}</td>
+                <td>${{ row.delta_stranded }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="fas fa-layer-group"></i>
+        </div>
+        <h2 class="empty-state-title">No scenario data</h2>
+        <p class="empty-state-message">Select scenarios to compare.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

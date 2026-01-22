@@ -1,0 +1,137 @@
+App 2: Deployment & Kit Readiness - Implementation Plan
+Overview
+Build a Flask-based analytics application for GPU buffer strategy with kit readiness, priority pegging, and blocker attribution.
+
+Project Setup
+Location: c:\Users\ely.x.colon\OneDrive - Accenture\Desktop\app2_deployment_kit_sim
+
+Data Source: User copies *.parquet files from App 1's data/gold/ into App 2's data/gold/
+
+Proposed File Structure
+app2_deployment_kit_sim/
+├── app.py                          # Flask entry point
+├── pyproject.toml                  # Dependencies
+├── requirements.txt
+├── README.md
+├── configs/
+│   └── default_config.yml          # App settings + scenario config
+├── data/
+│   └── gold/                       # User copies parquet files here
+├── runs/                           # Analysis run outputs (gitignored)
+├── src/
+│   └── bufferlab_deploy/
+│       ├── __init__.py
+│       ├── config.py               # Config loading
+│       ├── data_contract.py        # Validation checkers
+│       ├── duckdb_loader.py        # Load parquet into DuckDB
+│       ├── calendar_utils.py       # Week alignment helpers
+│       ├── kit_engine.py           # BOM explosion
+│       ├── netting_ledger.py       # Time-phased inventory
+│       ├── transfer_model.py       # Multi-echelon delays
+│       ├── pegging_engine.py       # Priority allocation
+│       ├── blocker_engine.py       # Long-pole attribution
+│       ├── stranded_engine.py      # Stranded inventory
+│       ├── buffer_engine.py        # Policy-based targets
+│       ├── scenario_engine.py      # Scenario comparison
+│       └── exports.py              # Excel/HTML report generation
+├── routes/
+│   ├── __init__.py
+│   ├── main.py                     # Home/Overview
+│   ├── readiness.py                # Kit Readiness drilldown
+│   ├── pegging.py                  # Priority & Pegging
+│   ├── blockers.py                 # Long Poles
+│   ├── stranded.py                 # Stranded Inventory
+│   ├── scenarios.py                # Scenario Compare
+│   ├── buffers.py                  # Buffer Targets
+│   └── diagnostics.py              # Data Contract page
+├── templates/
+│   ├── base.html                   # Dark theme (copied from App 1)
+│   ├── index.html                  # Home/Overview
+│   ├── readiness.html
+│   ├── pegging.html
+│   ├── blockers.html
+│   ├── stranded.html
+│   ├── scenarios.html
+│   ├── buffers.html
+│   ├── diagnostics.html
+│   └── error.html                  # Data contract error page
+├── static/
+│   ├── css/
+│   │   └── dark_theme.css
+│   ├── js/
+│   │   └── charts.js               # Chart.js wrappers
+│   └── icons.svg
+└── tests/
+    ├── test_contract.py
+    ├── test_netting.py
+    ├── test_pegging.py
+    └── test_transfer.py
+Build Phases
+Phase 1: Project Foundation
+ Create project structure and pyproject.toml
+ Copy dark theme from App 1 (base.html + CSS)
+ Set up Flask app with blueprints
+ Create config loader (YAML)
+ Build DuckDB parquet loader
+ Implement data contract validation
+ Build error page for contract failures
+ Create basic Home page with status
+Phase 2: Core Analytics Engines
+ Calendar utilities (week alignment)
+ Kit explosion engine (BOM effective dating)
+ Multi-echelon transfer model
+ Time-phased netting ledger
+ Priority-aware pegging engine
+Phase 3: Attribution & Metrics
+ Kit completion metrics
+ Long-pole blocker attribution
+ Stranded inventory calculation
+ Buffer recommendation engine (policy heuristic)
+Phase 4: UI Pages
+ Kit Readiness page (charts + drilldown)
+ Priority & Pegging page
+ Long Poles page (Pareto chart)
+ Stranded Inventory page
+ Scenario Compare page
+ Buffer Targets page
+ Diagnostics/Assumptions page
+Phase 5: Exports & Polish
+ Excel workbook export (multi-tab)
+ HTML executive summary
+ Run manifest generation
+ README documentation
+ Final UI polish
+Key Design Decisions
+Data Layer
+DuckDB as in-memory query engine over Parquet
+All gold tables loaded on app startup
+Contract validation runs before any analytics
+Computation Flow
+Load Parquet → Validate Contract → Build DuckDB Views
+→ Kit Explosion → Transfer Delays → Netting Ledger
+→ Priority Pegging → Blocker Attribution → Stranded Calc
+→ Buffer Targets → UI Render + Exports
+Scenario Handling
+scenario_id from site_readiness drives capacity
+Scenario selector on Home page filters all views
+Scenario Compare page shows deltas
+Dependencies
+[project]
+dependencies = [
+    "flask>=3.0.0",
+    "duckdb>=0.9.0",
+    "polars>=0.20.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "xlsxwriter>=3.1.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.5.0",
+]
+User Review Required
+IMPORTANT
+
+Before I start building, please confirm:
+
+The file structure looks good?
+Phase breakdown makes sense?
+Any priority adjustments (e.g., start with specific pages)?

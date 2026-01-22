@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}Long Pole Blockers{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Long Pole Blockers</h1>
+        <p class="page-subtitle">Root cause attribution and fix recommendations</p>
+    </div>
+    <div>
+        <span class="badge badge-purple">{{ scenario_id }}</span>
+    </div>
+</div>
+
+<form class="filters" method="get">
+    <div class="filter-group">
+        <label class="filter-label">Site</label>
+        <select name="site_id" class="select-input">
+            <option value="">All Sites</option>
+            {% for site in sites %}
+            <option value="{{ site }}" {% if site == filters.site_id %}selected{% endif %}>{{ site }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week Start</label>
+        <select name="week_start" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_start %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week End</label>
+        <select name="week_end" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_end %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <button class="btn btn-secondary" type="submit">
+            <i class="fas fa-filter"></i> Apply
+        </button>
+    </div>
+</form>
+
+<div class="grid grid-2" style="margin-bottom: 2rem;">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Pareto of Blockers</h3>
+        </div>
+        <div class="chart-container">
+            <canvas id="paretoChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Top Blockers</h3>
+        </div>
+        {% if pareto_rows %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Category</th>
+                    <th>Root Cause</th>
+                    <th>Gap Qty</th>
+                    <th>Gap $</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in pareto_rows %}
+                <tr>
+                    <td>{{ row.item_id }}</td>
+                    <td>{{ row.category }}</td>
+                    <td>{{ row.root_cause }}</td>
+                    <td>{{ row.total_gap_qty }}</td>
+                    <td>${{ row.total_gap_value }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h2 class="empty-state-title">No blockers detected</h2>
+            <p class="empty-state-message">Adjust filters or run analysis.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 2rem;">
+    <div class="card-header">
+        <h3 class="card-title">Blocker Attribution Detail</h3>
+    </div>
+    {% if blocker_rows %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Week</th>
+                <th>Site</th>
+                <th>Kit</th>
+                <th>Item</th>
+                <th>Required</th>
+                <th>Available</th>
+                <th>Gap</th>
+                <th>Root Cause</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in blocker_rows %}
+            <tr>
+                <td>{{ row.week }}</td>
+                <td>{{ row.site_id }}</td>
+                <td>{{ row.kit_id }}</td>
+                <td>{{ row.item_id }}</td>
+                <td>{{ row.required_qty }}</td>
+                <td>{{ row.available_now }}</td>
+                <td>{{ row.gap_qty }}</td>
+                <td>{{ row.root_cause }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="fas fa-list"></i>
+        </div>
+        <h2 class="empty-state-title">No detail rows</h2>
+        <p class="empty-state-message">No blocker records for the selected scope.</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">What Would Fix It</h3>
+    </div>
+    {% if fix_rows %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Item</th>
+                <th>Root Cause</th>
+                <th>Gap Qty</th>
+                <th>Fix</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in fix_rows %}
+            <tr>
+                <td>{{ row.rank }}</td>
+                <td>{{ row.item_id }}</td>
+                <td>{{ row.root_cause }}</td>
+                <td>{{ row.gap_qty }}</td>
+                <td>{{ row.fix }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="fas fa-wrench"></i>
+        </div>
+        <h2 class="empty-state-title">No recommendations</h2>
+        <p class="empty-state-message">No blockers in the current scope.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const pareto = {{ pareto_chart | tojson }};
+        const ctx = document.getElementById('paretoChart');
+        if (ctx) {
+            new Chart(ctx, {
+                data: {
+                    labels: pareto.labels,
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'Gap Qty',
+                            data: pareto.values,
+                            backgroundColor: 'rgba(255, 184, 0, 0.6)'
+                        },
+                        {
+                            type: 'line',
+                            label: 'Cumulative %',
+                            data: pareto.cumulative,
+                            borderColor: '#A100FF',
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true },
+                        y1: {
+                            beginAtZero: true,
+                            max: 100,
+                            position: 'right',
+                            ticks: { callback: v => v + '%' }
+                        }
+                    }
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

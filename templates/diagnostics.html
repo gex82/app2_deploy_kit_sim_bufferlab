@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}Diagnostics{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Data Contract & Diagnostics</h1>
+        <p class="page-subtitle">Validate data contract and view system assumptions</p>
+    </div>
+
+    <button class="btn btn-secondary" onclick="reloadData()">
+        <i class="fas fa-sync-alt"></i> Reload Data
+    </button>
+</div>
+
+<!-- Contract Status -->
+<div class="card animate-fade-in" style="margin-bottom: 2rem;">
+    <div class="card-header">
+        <h3 class="card-title">Contract Validation</h3>
+        {% if contract_result and contract_result.passed %}
+        <span class="badge badge-success"><i class="fas fa-check"></i> All Checks Passed</span>
+        {% else %}
+        <span class="badge badge-error"><i class="fas fa-times"></i> {{ contract_result.errors | length if
+            contract_result else 0 }} Error(s)</span>
+        {% endif %}
+    </div>
+
+    {% if contract_result %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Check</th>
+                <th>Status</th>
+                <th>Message</th>
+                <th>Fix Recommendation</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for check in contract_result.checks %}
+            {% if not check.passed or check.severity != 'info' %}
+            <tr>
+                <td>{{ check.name }}</td>
+                <td>
+                    {% if check.passed %}
+                    <span class="badge badge-success"><i class="fas fa-check"></i> Pass</span>
+                    {% elif check.severity == 'error' %}
+                    <span class="badge badge-error"><i class="fas fa-times"></i> Error</span>
+                    {% else %}
+                    <span class="badge badge-warning"><i class="fas fa-exclamation"></i> Warning</span>
+                    {% endif %}
+                </td>
+                <td style="max-width: 300px;">{{ check.message }}</td>
+                <td style="color: var(--text-secondary); max-width: 300px;">
+                    {{ check.fix_recommendation or '—' }}
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-secondary);">No contract validation results available.</p>
+    {% endif %}
+</div>
+
+<!-- Loaded Tables -->
+<div class="card animate-fade-in" style="margin-bottom: 2rem;">
+    <div class="card-header">
+        <h3 class="card-title">Loaded Tables</h3>
+        <span class="badge badge-purple">{{ loader.loaded_tables.values() | select('equalto', true) | list | length if
+            loader else 0 }} tables</span>
+    </div>
+
+    {% if loader %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Table</th>
+                <th>Status</th>
+                <th>Rows</th>
+                <th>Columns</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for table, loaded in loader.loaded_tables.items() %}
+            <tr>
+                <td><strong>{{ table }}</strong></td>
+                <td>
+                    {% if loaded %}
+                    <span class="badge badge-success">Loaded</span>
+                    {% else %}
+                    <span class="badge badge-error">Missing</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if loaded %}
+                    {{ loader.table_stats.get(table, {}).get('row_count', 0) | int }}
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
+                <td style="color: var(--text-secondary); font-size: 0.85rem;">
+                    {% if loaded %}
+                    {{ loader.table_stats.get(table, {}).get('columns', []) | join(', ') }}
+                    {% else %}
+                    {{ loader.table_stats.get(table, {}).get('error', 'Not found') }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+
+<!-- Configuration -->
+<div class="grid grid-2">
+    <div class="card animate-fade-in">
+        <div class="card-header">
+            <h3 class="card-title">Configuration</h3>
+        </div>
+        <table class="data-table">
+            <tbody>
+                <tr>
+                    <td>Gold Path</td>
+                    <td style="color: var(--text-secondary);">{{ config.data.gold_path }}</td>
+                </tr>
+                <tr>
+                    <td>Week Start</td>
+                    <td style="color: var(--text-secondary);">{{ ['Monday', 'Tuesday', 'Wednesday', 'Thursday',
+                        'Friday', 'Saturday', 'Sunday'][config.analysis.week_start] }}</td>
+                </tr>
+                <tr>
+                    <td>Horizon</td>
+                    <td style="color: var(--text-secondary);">{{ config.analysis.horizon_weeks }} weeks</td>
+                </tr>
+                <tr>
+                    <td>Transfers</td>
+                    <td>
+                        {% if config.analysis.transfers.enabled %}
+                        <span class="badge badge-success">Enabled</span>
+                        {% else %}
+                        <span class="badge badge-warning">Disabled</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td>Pegging</td>
+                    <td>
+                        {% if config.analysis.pegging.enabled %}
+                        <span class="badge badge-success">Enabled</span>
+                        {% else %}
+                        <span class="badge badge-warning">Disabled</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card animate-fade-in">
+        <div class="card-header">
+            <h3 class="card-title">Assumptions</h3>
+        </div>
+        <div style="color: var(--text-secondary); font-size: 0.9rem;">
+            <ul style="padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                <li>Gold tables from App 1 are authoritative (no cleaning in App 2)</li>
+                <li>All dates aligned to configured week start (Monday by default)</li>
+                <li>Priority 1 = highest priority for pegging allocation</li>
+                <li>Transfer lead times from lane_master (if present)</li>
+                <li>Buffer recommendations are policy-based heuristics (v1)</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function reloadData() {
+        fetch('/api/reload-data', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Data reloaded successfully', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast('Failed to reload: ' + data.error, 'error');
+                }
+            })
+            .catch(err => {
+                showToast('Error: ' + err.message, 'error');
+            });
+    }
+</script>
+{% endblock %}

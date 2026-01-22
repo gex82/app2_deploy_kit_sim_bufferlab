@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Buffer Targets{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Buffer Targets</h1>
+        <p class="page-subtitle">Policy-based heuristic (v1) by segment</p>
+    </div>
+    <div>
+        <span class="badge badge-purple">{{ scenario_id }}</span>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 2rem;">
+    <div class="card-header">
+        <h3 class="card-title">Policy Knobs</h3>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Knob</th>
+                <th>Value</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Lead time high risk (days)</td>
+                <td>{{ policy.lead_time_high_risk }}</td>
+            </tr>
+            <tr>
+                <td>Lead time medium risk (days)</td>
+                <td>{{ policy.lead_time_medium_risk }}</td>
+            </tr>
+            <tr>
+                <td>Low confidence threshold</td>
+                <td>{{ policy.low_confidence_threshold }}</td>
+            </tr>
+            <tr>
+                <td>Aging warning (days)</td>
+                <td>{{ policy.aging_warning }}</td>
+            </tr>
+            <tr>
+                <td>Aging critical (days)</td>
+                <td>{{ policy.aging_critical }}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Buffer Recommendations</h3>
+    </div>
+    {% if rows %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Segment</th>
+                <th>Items</th>
+                <th>Min Weeks</th>
+                <th>Max Weeks</th>
+                <th>Location</th>
+                <th>Rationale</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>{{ row.segment }}</td>
+                <td>{{ row.items_count }}</td>
+                <td>{{ row.min_weeks }}</td>
+                <td>{{ row.max_weeks }}</td>
+                <td>{{ row.location }}</td>
+                <td style="font-size: 0.8rem; color: var(--text-secondary);">{{ row.rationale }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="fas fa-sliders-h"></i>
+        </div>
+        <h2 class="empty-state-title">No buffer targets</h2>
+        <p class="empty-state-message">Run analysis or check data availability.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

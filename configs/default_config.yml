@@ -1,0 +1,81 @@
+# BufferLab - Deployment & Kit Readiness
+# Default Configuration
+
+# ============================================================================
+# Data Paths
+# ============================================================================
+data:
+  gold_path: "./data/gold"  # Path to parquet files from App 1
+  runs_path: "./runs"       # Analysis run outputs
+
+# ============================================================================
+# Analysis Settings
+# ============================================================================
+analysis:
+  # Week definition
+  week_start: 0  # 0=Monday, 6=Sunday
+  
+  # Default scenario (if multiple exist)
+  default_scenario: "baseline"
+  
+  # Time horizon
+  horizon_weeks: 12
+  
+  # Transfer modeling
+  transfers:
+    enabled: true
+    assume_unlimited_capacity: false  # If true, ignore capacity limits
+  
+  # Pegging
+  pegging:
+    enabled: true
+    default_priority: 50  # If priority missing in deployment_plan
+
+# ============================================================================
+# MW to Kits Conversion (if readiness_capacity_kits not present)
+# ============================================================================
+mw_per_kit:
+  default: 0.5  # MW per kit if not specified by kit_id
+  # by_kit:
+  #   KIT-001: 0.4
+  #   KIT-002: 0.6
+
+# ============================================================================
+# Buffer Policy Settings (v1 heuristic)
+# ============================================================================
+buffer_policy:
+  # Lead time thresholds (days)
+  lead_time_high_risk: 60
+  lead_time_medium_risk: 30
+  
+  # Confidence weight threshold
+  low_confidence_threshold: 0.7
+  
+  # Aging thresholds (days)
+  aging_warning: 60
+  aging_critical: 90
+  
+  # Buffer recommendations by segment (weeks of coverage)
+  targets:
+    GPU_blocking_high_risk: {min: 4, max: 6, location: "integration"}
+    GPU_blocking_low_risk: {min: 2, max: 4, location: "regional"}
+    GPU_non_blocking: {min: 1, max: 2, location: "site"}
+    Callan_blocking: {min: 3, max: 5, location: "integration"}
+    FEN_blocking: {min: 2, max: 4, location: "regional"}
+    default: {min: 2, max: 3, location: "regional"}
+
+# ============================================================================
+# Export Settings
+# ============================================================================
+exports:
+  excel: true
+  html: true
+  pdf: false  # Requires weasyprint
+
+# ============================================================================
+# Logging
+# ============================================================================
+logging:
+  level: INFO
+  format: json
+  console: true

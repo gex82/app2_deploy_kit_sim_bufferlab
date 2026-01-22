@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Data Contract Error{% endblock %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 4rem auto; text-align: center;">
+    <div class="empty-state-icon" style="background: rgba(255, 51, 102, 0.15);">
+        <i class="fas fa-exclamation-triangle" style="color: var(--error);"></i>
+    </div>
+
+    <h1 class="page-title" style="margin-bottom: 1rem;">Data Contract Error</h1>
+
+    <p style="color: var(--text-secondary); font-size: 1.1rem; margin-bottom: 2rem;">
+        App 2 requires valid gold tables from App 1 to run analysis.<br>
+        Please fix the following issues and reload.
+    </p>
+
+    {% if contract_result %}
+    <div class="card" style="text-align: left; margin-bottom: 2rem;">
+        <h3 class="card-title" style="margin-bottom: 1.5rem;">
+            <i class="fas fa-times-circle" style="color: var(--error);"></i>
+            {{ contract_result.errors | length }} Error(s) Found
+        </h3>
+
+        {% for error in contract_result.errors %}
+        <div
+            style="padding: 1rem; background: rgba(255, 51, 102, 0.1); border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid var(--error);">
+            <div style="font-weight: 600; margin-bottom: 0.5rem;">{{ error.name }}</div>
+            <div style="color: var(--text-secondary); margin-bottom: 0.5rem;">{{ error.message }}</div>
+            {% if error.fix_recommendation %}
+            <div style="font-size: 0.9rem; color: var(--accent-purple);">
+                <i class="fas fa-lightbulb"></i> {{ error.fix_recommendation }}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div style="display: flex; gap: 1rem; justify-content: center;">
+        <a href="/diagnostics" class="btn btn-secondary">
+            <i class="fas fa-stethoscope"></i> View Full Diagnostics
+        </a>
+        <button class="btn btn-primary" onclick="reloadData()">
+            <i class="fas fa-sync-alt"></i> Retry
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function reloadData() {
+        fetch('/api/reload-data', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.stats.contract_passed) {
+                    showToast('Contract passed!', 'success');
+                    setTimeout(() => location.href = '/', 1000);
+                } else if (data.success) {
+                    showToast('Still has contract errors', 'warning');
+                    location.reload();
+                } else {
+                    showToast('Failed: ' + data.error, 'error');
+                }
+            });
+    }
+</script>
+{% endblock %}

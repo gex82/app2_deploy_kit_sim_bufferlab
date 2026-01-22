@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}Overview{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Deployment & Kit Readiness</h1>
+        <p class="page-subtitle">GPU buffer strategy analytics and kit completion tracking</p>
+    </div>
+
+    <div style="display: flex; gap: 1rem; align-items: center;">
+        {% if scenarios %}
+        <select id="scenarioSelect" class="select-input" onchange="setScenario(this.value)">
+            {% for s in scenarios %}
+            <option value="{{ s }}" {% if s==stats.current_scenario %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+
+        <button class="btn btn-primary" onclick="runAnalysis()">
+            <i class="fas fa-play"></i> Run Analysis
+        </button>
+    </div>
+</div>
+
+{% if not stats.contract_passed %}
+<div class="card animate-fade-in"
+    style="background: rgba(255, 51, 102, 0.1); border-color: var(--error); margin-bottom: 2rem;">
+    <div style="display: flex; align-items: center; gap: 1rem;">
+        <div class="card-icon" style="background: rgba(255, 51, 102, 0.2); color: var(--error);">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <div style="flex: 1;">
+            <h3 style="margin-bottom: 0.25rem;">Data Contract Errors Detected</h3>
+            <p style="color: var(--text-secondary); margin: 0;">
+                {{ contract_result.errors | length }} error(s) found.
+                <a href="/diagnostics" style="color: var(--accent-purple);">View details -></a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<form class="filters" method="get">
+    <div class="filter-group">
+        <label class="filter-label">Site</label>
+        <select name="site_id" class="select-input">
+            <option value="all" {% if filters.site_id == 'all' %}selected{% endif %}>All Sites</option>
+            {% for site in sites %}
+            <option value="{{ site }}" {% if site == filters.site_id %}selected{% endif %}>{{ site }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week Start</label>
+        <select name="week_start" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_start %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week End</label>
+        <select name="week_end" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_end %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <button class="btn btn-secondary" type="submit">
+            <i class="fas fa-filter"></i> Apply
+        </button>
+    </div>
+</form>
+
+<div class="grid grid-4" style="margin-bottom: 2rem;">
+    <div class="card metric-card animate-fade-in delay-1">
+        <div class="card-header">
+            <span class="metric-label">Completion Rate</span>
+            <div class="card-icon">
+                <i class="fas fa-check-circle"></i>
+            </div>
+        </div>
+        <div class="metric-value accent">{{ kpis.completion_rate }}%</div>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">buildable vs deployable</p>
+    </div>
+
+    <div class="card metric-card animate-fade-in delay-2">
+        <div class="card-header">
+            <span class="metric-label">Blocked Kits</span>
+            <div class="card-icon">
+                <i class="fas fa-ban"></i>
+            </div>
+        </div>
+        <div class="metric-value error">{{ kpis.blocked_kits }}</div>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">total blocked in window</p>
+    </div>
+
+    <div class="card metric-card animate-fade-in delay-3">
+        <div class="card-header">
+            <span class="metric-label">Top Blocker</span>
+            <div class="card-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+        </div>
+        <div class="metric-value warning" style="font-size: 1.6rem;">{{ kpis.top_blocker }}</div>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">highest gap item</p>
+    </div>
+
+    <div class="card metric-card animate-fade-in delay-4">
+        <div class="card-header">
+            <span class="metric-label">Stranded $</span>
+            <div class="card-icon">
+                <i class="fas fa-dollar-sign"></i>
+            </div>
+        </div>
+        <div class="metric-value accent">${{ kpis.stranded_value }}</div>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">value at risk</p>
+    </div>
+</div>
+
+<div class="grid grid-2" style="margin-bottom: 2rem;">
+    <div class="card animate-fade-in">
+        <div class="card-header">
+            <h3 class="card-title">Kit Completion Rate</h3>
+            <span class="badge badge-purple">{{ stats.current_scenario }}</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="completionChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card animate-fade-in">
+        <div class="card-header">
+            <h3 class="card-title">Blocked Kits by Week</h3>
+            <span class="badge badge-purple">Filtered</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="blockedChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-4">
+    <a href="/readiness" class="card" style="text-decoration: none;">
+        <div class="card-icon" style="margin-bottom: 1rem;">
+            <i class="fas fa-box"></i>
+        </div>
+        <h3 class="card-title">Kit Readiness</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            View planned vs buildable kits by site and week
+        </p>
+    </a>
+
+    <a href="/pegging" class="card" style="text-decoration: none;">
+        <div class="card-icon" style="margin-bottom: 1rem;">
+            <i class="fas fa-sitemap"></i>
+        </div>
+        <h3 class="card-title">Priority Pegging</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            See how components are allocated by priority
+        </p>
+    </a>
+
+    <a href="/blockers" class="card" style="text-decoration: none;">
+        <div class="card-icon" style="margin-bottom: 1rem;">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <h3 class="card-title">Long Poles</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            Identify top blockers and root causes
+        </p>
+    </a>
+
+    <a href="/buffers" class="card" style="text-decoration: none;">
+        <div class="card-icon" style="margin-bottom: 1rem;">
+            <i class="fas fa-sliders-h"></i>
+        </div>
+        <h3 class="card-title">Buffer Targets</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            Policy-based buffer recommendations
+        </p>
+    </a>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function setScenario(scenarioId) {
+        fetch('/api/set-scenario', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scenario_id: scenarioId })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`Scenario set to ${scenarioId}`, 'success');
+                    window.location.reload();
+                }
+            });
+    }
+
+    function runAnalysis() {
+        fetch('/api/run-analysis', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Analysis complete', 'success');
+                    window.location.reload();
+                } else {
+                    showToast(data.error || 'Analysis failed', 'error');
+                }
+            })
+            .catch(() => showToast('Analysis failed', 'error'));
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const completionTrend = {{ completion_trend | tojson }};
+        const blockedTrend = {{ blocked_trend | tojson }};
+        const weeks = completionTrend.map(d => d.week);
+
+        const completionCtx = document.getElementById('completionChart');
+        if (completionCtx) {
+            new Chart(completionCtx, {
+                type: 'line',
+                data: {
+                    labels: weeks,
+                    datasets: [{
+                        label: 'Completion Rate',
+                        data: completionTrend.map(d => d.completion_rate),
+                        borderColor: '#A100FF',
+                        backgroundColor: 'rgba(161, 0, 255, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: { callback: v => v + '%' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        const blockedCtx = document.getElementById('blockedChart');
+        if (blockedCtx) {
+            new Chart(blockedCtx, {
+                type: 'bar',
+                data: {
+                    labels: weeks,
+                    datasets: [{
+                        label: 'Blocked Kits',
+                        data: blockedTrend.map(d => d.blocked),
+                        backgroundColor: '#FF3366',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

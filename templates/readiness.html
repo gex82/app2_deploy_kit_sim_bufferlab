@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Kit Readiness{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Kit Readiness</h1>
+        <p class="page-subtitle">Planned vs deployable vs buildable kits by site and week</p>
+    </div>
+    <div>
+        <span class="badge badge-purple">{{ scenario_id }}</span>
+    </div>
+</div>
+
+<form class="filters" method="get">
+    <div class="filter-group">
+        <label class="filter-label">Site</label>
+        <select name="site_id" class="select-input">
+            {% for site in sites %}
+            <option value="{{ site }}" {% if site == filters.site_id %}selected{% endif %}>{{ site }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Kit</label>
+        <select name="kit_id" class="select-input">
+            {% for kit in kits %}
+            <option value="{{ kit }}" {% if kit == filters.kit_id %}selected{% endif %}>{{ kit }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week Start</label>
+        <select name="week_start" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_start %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week End</label>
+        <select name="week_end" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_end %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <button class="btn btn-secondary" type="submit">
+            <i class="fas fa-filter"></i> Apply
+        </button>
+    </div>
+</form>
+
+<div class="grid grid-2" style="margin-bottom: 2rem;">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Kit Readiness Trend</h3>
+            <span class="badge badge-info">Selected Kit</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="readinessChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Weekly Summary</h3>
+        </div>
+        {% if summary_rows %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Week</th>
+                    <th>Planned</th>
+                    <th>Deployable</th>
+                    <th>Buildable</th>
+                    <th>Blocked</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in summary_rows %}
+                <tr>
+                    <td>
+                        <a href="/readiness?site_id={{ filters.site_id }}&kit_id={{ filters.kit_id }}&week_start={{ filters.week_start }}&week_end={{ filters.week_end }}&detail_week={{ row.week }}"
+                            style="color: var(--accent-purple); text-decoration: none;">
+                            {{ row.week }}
+                        </a>
+                    </td>
+                    <td>{{ row.planned }}</td>
+                    <td>{{ row.deployable }}</td>
+                    <td>{{ row.buildable }}</td>
+                    <td>{{ row.blocked }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <i class="fas fa-box"></i>
+            </div>
+            <h2 class="empty-state-title">No data for selection</h2>
+            <p class="empty-state-message">Adjust filters to see readiness trends.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Pegging Outcomes{% if filters.detail_week %} - {{ filters.detail_week }}{% endif %}</h3>
+        <span class="badge badge-info">Week Detail</span>
+    </div>
+    {% if detail_rows %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Kit</th>
+                <th>Priority</th>
+                <th>Deployable</th>
+                <th>Buildable</th>
+                <th>Blocked</th>
+                <th>Blocking Items</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in detail_rows %}
+            <tr>
+                <td>{{ row.kit_id }}</td>
+                <td>{{ row.priority }}</td>
+                <td>{{ row.deployable_kits }}</td>
+                <td>{{ row.buildable_kits }}</td>
+                <td>{{ row.blocked_kits }}</td>
+                <td style="font-size: 0.8rem; color: var(--text-secondary);">{{ row.blocking_items }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="fas fa-sitemap"></i>
+        </div>
+        <h2 class="empty-state-title">Select a week</h2>
+        <p class="empty-state-message">Click a week in the summary table to view pegging details.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const chartData = {{ chart_data | tojson }};
+        const ctx = document.getElementById('readinessChart');
+        if (ctx) {
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [
+                        {
+                            label: 'Planned',
+                            data: chartData.planned,
+                            borderColor: '#00A3FF',
+                            backgroundColor: 'rgba(0, 163, 255, 0.1)',
+                            fill: false
+                        },
+                        {
+                            label: 'Deployable',
+                            data: chartData.deployable,
+                            borderColor: '#FFB800',
+                            backgroundColor: 'rgba(255, 184, 0, 0.1)',
+                            fill: false
+                        },
+                        {
+                            label: 'Buildable',
+                            data: chartData.buildable,
+                            borderColor: '#00D26A',
+                            backgroundColor: 'rgba(0, 210, 106, 0.1)',
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

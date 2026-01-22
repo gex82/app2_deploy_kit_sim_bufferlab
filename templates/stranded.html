@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Stranded Inventory{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Stranded Inventory</h1>
+        <p class="page-subtitle">Inventory available but not consumable due to blockers</p>
+    </div>
+    <div>
+        <span class="badge badge-purple">{{ scenario_id }}</span>
+    </div>
+</div>
+
+<form class="filters" method="get">
+    <div class="filter-group">
+        <label class="filter-label">Site</label>
+        <select name="site_id" class="select-input">
+            <option value="">All Sites</option>
+            {% for site in sites %}
+            <option value="{{ site }}" {% if site == filters.site_id %}selected{% endif %}>{{ site }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week Start</label>
+        <select name="week_start" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_start %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label class="filter-label">Week End</label>
+        <select name="week_end" class="select-input">
+            <option value="">All</option>
+            {% for w in weeks %}
+            <option value="{{ w }}" {% if w == filters.week_end %}selected{% endif %}>{{ w }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <button class="btn btn-secondary" type="submit">
+            <i class="fas fa-filter"></i> Apply
+        </button>
+    </div>
+</form>
+
+<div class="grid grid-3" style="margin-bottom: 2rem;">
+    <div class="card metric-card">
+        <div class="card-header">
+            <span class="metric-label">Stranded Units</span>
+            <div class="card-icon">
+                <i class="fas fa-boxes"></i>
+            </div>
+        </div>
+        <div class="metric-value warning">{{ kpis.total_units }}</div>
+    </div>
+    <div class="card metric-card">
+        <div class="card-header">
+            <span class="metric-label">Stranded $</span>
+            <div class="card-icon">
+                <i class="fas fa-dollar-sign"></i>
+            </div>
+        </div>
+        <div class="metric-value accent">${{ kpis.total_value }}</div>
+    </div>
+    <div class="card metric-card">
+        <div class="card-header">
+            <span class="metric-label">Top Item</span>
+            <div class="card-icon">
+                <i class="fas fa-exclamation-circle"></i>
+            </div>
+        </div>
+        <div class="metric-value" style="font-size: 1.6rem;">{{ kpis.top_item }}</div>
+    </div>
+</div>
+
+<div class="grid grid-2" style="margin-bottom: 2rem;">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Top Stranded Value</h3>
+        </div>
+        <div class="chart-container">
+            <canvas id="strandedChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Stranded Inventory Detail</h3>
+        </div>
+        {% if stranded_rows %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Category</th>
+                    <th>Units</th>
+                    <th>Value</th>
+                    <th>Blocked By</th>
+                    <th>Aging</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in stranded_rows %}
+                <tr>
+                    <td>{{ row.item_id }}</td>
+                    <td>{{ row.category }}</td>
+                    <td>{{ row.stranded_units }}</td>
+                    <td>${{ row.stranded_value }}</td>
+                    <td>{{ row.blocked_by_item }}</td>
+                    <td>{{ row.aging_days }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <i class="fas fa-warehouse"></i>
+            </div>
+            <h2 class="empty-state-title">No stranded inventory</h2>
+            <p class="empty-state-message">No stranded items for the selected scope.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const chartData = {{ chart_data | tojson }};
+        const ctx = document.getElementById('strandedChart');
+        if (ctx) {
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: 'Stranded $',
+                        data: chartData.values,
+                        backgroundColor: 'rgba(255, 51, 102, 0.6)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}
