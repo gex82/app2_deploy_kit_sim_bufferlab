@@ -80,7 +80,11 @@ class KitEngine:
             LEFT JOIN readiness r ON d.site_id = r.site_id AND d.week = r.week
             ORDER BY d.week, d.site_id, d.priority, d.kit_id
         """)
-        
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         return result
     
     def explode_kits(self, scenario_id: str | None = None) -> pl.DataFrame:
@@ -141,7 +145,11 @@ class KitEngine:
                 AND {bom_clause}
             ORDER BY d.week, d.site_id, d.priority, d.kit_id, b.child_item_id
         """)
-        
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         return result
     
     def get_aggregated_requirements(self, scenario_id: str | None = None) -> pl.DataFrame:
@@ -207,7 +215,11 @@ class KitEngine:
             GROUP BY week, site_id, item_id
             ORDER BY week, site_id, total_required DESC
         """)
-        
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         return result
     
     def get_kit_requirements_detail(self, scenario_id: str | None = None) -> pl.DataFrame:
@@ -272,5 +284,9 @@ class KitEngine:
             LEFT JOIN item_master im ON b.child_item_id = im.item_id
             ORDER BY d.week, d.site_id, d.priority, d.kit_id
         """)
-        
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         return result
