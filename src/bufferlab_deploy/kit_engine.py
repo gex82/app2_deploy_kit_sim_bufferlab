@@ -107,6 +107,8 @@ class KitEngine:
             scenario_id = self.config.analysis.default_scenario
         
         plan_table = get_plan_table(self.loader)
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
         bom_clause = get_bom_effective_clause(self.loader, "d.week", alias="b")
 
         default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
@@ -169,6 +171,8 @@ class KitEngine:
             scenario_id = self.config.analysis.default_scenario
         
         plan_table = get_plan_table(self.loader)
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
         bom_clause = get_bom_effective_clause(self.loader, "d.week", alias="b")
 
         default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
@@ -242,6 +246,8 @@ class KitEngine:
             scenario_id = self.config.analysis.default_scenario
         
         plan_table = get_plan_table(self.loader)
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
         bom_clause = get_bom_effective_clause(self.loader, "d.week", alias="b")
 
         default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
