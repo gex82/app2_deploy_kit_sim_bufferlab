@@ -52,19 +52,37 @@ REQUIRED_COLUMNS = {
     "item_master": ["item_id", "category", "subcategory"],
     "node_master": ["node_id", "site_id", "node_type"],
     "lane_master": ["from_node_id", "to_node_id", "transfer_lead_time_days"],
+    # New table for square-set convergence
+    "square_set_master": ["square_set_id", "site_id", "it_rack_kit_id", "callan_kit_id", "mor_kit_id", "power_mw_required"],
 }
 
 # Optional columns (used if present)
 OPTIONAL_COLUMNS = {
-    "deployment_plan": ["priority", "program_id"],
+    # deployment_plan: demand_tier for tiered demand support
+    "deployment_plan": ["priority", "program_id", "demand_tier"],
+    "demand_plan": ["priority", "program_id", "demand_tier"],
     "bom_kit": ["effective_end_week", "revision", "kit_criticality"],
     "inventory_position": ["reserved", "aging_days", "unit_cost"],
     "supply": ["allocation_flag", "confidence_weight"],
     "site_readiness": ["readiness_capacity_kits", "power_ready_mw", "readiness_state"],
-    "item_master": ["uom", "unit_cost", "description"],
+    # item_master: extended fields for segmentation
+    "item_master": ["uom", "unit_cost", "description", "value_density", "shared_flag", "build_ahead_flag"],
     "node_master": ["region"],
     "lane_master": ["transfer_capacity_units_per_week", "allowed_categories"],
+    # lifecycle: extended fields for GPU generation tracking
+    "lifecycle": ["generation", "compatibility_group", "transition_start_date", "transition_end_date"],
+    # substitution_map: extended fields for substitution types
+    "substitution_map": ["substitution_type", "approval_required"],
+    # square_set_master is in REQUIRED_COLUMNS but can have optional extensions
+    "square_set_master": ["description", "active"],
 }
+
+# Valid demand tier values
+VALID_DEMAND_TIERS = ["committed", "likely", "exploratory"]
+
+# Valid substitution types
+VALID_SUBSTITUTION_TYPES = ["minor_gen", "major_gen", "equivalent"]
+
 
 
 class DataContractValidator:
@@ -341,6 +359,90 @@ class DataContractValidator:
                     severity="warning",
                     fix_recommendation="Provide either readiness_capacity_kits or power_ready_mw",
                 ))
+        
+        # Check demand_tier values are valid (if column exists)
+        self._check_demand_tier_values()
+        
+        # Check substitution_type values are valid (if column exists)
+        self._check_substitution_type_values()
+    
+    def _check_demand_tier_values(self) -> None:
+        """Check that demand_tier values are valid enums."""
+        plan_table = get_plan_table(self.loader)
+        if not self.loader.loaded_tables.get(plan_table):
+            return
+        
+        stats = self.loader.table_stats.get(plan_table, {})
+        actual_cols = set(stats.get("columns", []))
+        
+        if "demand_tier" not in actual_cols:
+            # Optional column not present, skip check
+            return
+        
+        try:
+            invalid_tiers = self.loader.query(f"""
+                SELECT DISTINCT demand_tier
+                FROM {plan_table}
+                WHERE demand_tier IS NOT NULL
+                AND demand_tier NOT IN ('committed', 'likely', 'exploratory')
+            """)
+            
+            if len(invalid_tiers) > 0:
+                invalid_vals = invalid_tiers["demand_tier"].to_list()[:5]
+                self._add_check(ContractCheck(
+                    name="demand_tier valid values",
+                    passed=False,
+                    message=f"Found invalid demand_tier values: {invalid_vals}",
+                    severity="warning",
+                    fix_recommendation="demand_tier must be one of: committed, likely, exploratory",
+                ))
+            else:
+                self._add_check(ContractCheck(
+                    name="demand_tier valid values",
+                    passed=True,
+                    message="All demand_tier values are valid",
+                    severity="info",
+                ))
+        except Exception:
+            pass  # Column may not exist or have different type
+    
+    def _check_substitution_type_values(self) -> None:
+        """Check that substitution_type values are valid enums."""
+        if not self.loader.loaded_tables.get("substitution_map"):
+            return
+        
+        stats = self.loader.table_stats.get("substitution_map", {})
+        actual_cols = set(stats.get("columns", []))
+        
+        if "substitution_type" not in actual_cols:
+            return
+        
+        try:
+            invalid_types = self.loader.query("""
+                SELECT DISTINCT substitution_type
+                FROM substitution_map
+                WHERE substitution_type IS NOT NULL
+                AND substitution_type NOT IN ('minor_gen', 'major_gen', 'equivalent')
+            """)
+            
+            if len(invalid_types) > 0:
+                invalid_vals = invalid_types["substitution_type"].to_list()[:5]
+                self._add_check(ContractCheck(
+                    name="substitution_type valid values",
+                    passed=False,
+                    message=f"Found invalid substitution_type values: {invalid_vals}",
+                    severity="warning",
+                    fix_recommendation="substitution_type must be one of: minor_gen, major_gen, equivalent",
+                ))
+            else:
+                self._add_check(ContractCheck(
+                    name="substitution_type valid values",
+                    passed=True,
+                    message="All substitution_type values are valid",
+                    severity="info",
+                ))
+        except Exception:
+            pass  # Table may not have this column
 
 
 def validate_data_contract(loader: DuckDBLoader) -> ContractResult:

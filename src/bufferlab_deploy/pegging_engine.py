@@ -72,6 +72,235 @@ class PeggingEngine:
         
         return results
     
+    def run_tiered_pegging(
+        self, 
+        scenario_id: str | None = None,
+        apply_convergence_gating: bool = True
+    ) -> dict[str, Any]:
+        """
+        Run tiered pegging with strict demand tier priority.
+        
+        Processes demand in tier order:
+        1. Committed demand first (full supply access)
+        2. Likely demand second (only residual supply)
+        3. Exploratory demand last (remaining residual)
+        
+        Args:
+            scenario_id: Scenario to use
+            apply_convergence_gating: If True, apply square-set convergence checks
+        
+        Returns:
+            Dict with:
+                - committed_results: pegging results for committed tier
+                - likely_results: pegging results for likely tier
+                - exploratory_results: pegging results for exploratory tier
+                - stranded_inventory: items stranded due to partial domain readiness
+                - tier_summary: aggregated metrics by tier
+        """
+        if scenario_id is None:
+            scenario_id = self.config.analysis.default_scenario
+        
+        # Get kit requirements with priority and demand tier
+        kit_reqs = self.kit_engine.get_kit_requirements_detail(scenario_id)
+        
+        if len(kit_reqs) == 0:
+            return {
+                "committed_results": pl.DataFrame(),
+                "likely_results": pl.DataFrame(),
+                "exploratory_results": pl.DataFrame(),
+                "stranded_inventory": pl.DataFrame(),
+                "tier_summary": {},
+            }
+        
+        # Get initial availability from ledger
+        ledger = self.netting_ledger.build_ledger(scenario_id)
+        
+        if len(ledger) == 0:
+            return {
+                "committed_results": pl.DataFrame(),
+                "likely_results": pl.DataFrame(),
+                "exploratory_results": pl.DataFrame(),
+                "stranded_inventory": pl.DataFrame(),
+                "tier_summary": {},
+            }
+        
+        # Build initial available inventory lookup
+        availability = (
+            ledger
+            .select(["week", "site_id", "item_id", "available"])
+            .unique(["week", "site_id", "item_id"])
+        )
+        
+        # Check if demand_tier column exists
+        has_demand_tier = "demand_tier" in kit_reqs.columns
+        
+        if not has_demand_tier:
+            # Treat all as committed if no tier column
+            kit_reqs = kit_reqs.with_columns([
+                pl.lit("committed").alias("demand_tier")
+            ])
+        
+        # Track remaining inventory across tiers
+        tier_results = {}
+        remaining_availability = availability
+        stranded_items = []
+        
+        for tier in ["committed", "likely", "exploratory"]:
+            # Filter requirements for this tier
+            tier_reqs = kit_reqs.filter(pl.col("demand_tier") == tier)
+            
+            if len(tier_reqs) == 0:
+                tier_results[tier] = pl.DataFrame()
+                continue
+            
+            # Run allocation for this tier with current remaining inventory
+            tier_result = self._greedy_allocate(tier_reqs, remaining_availability)
+            tier_results[tier] = tier_result
+            
+            # Update remaining inventory (subtract what was consumed)
+            if len(tier_result) > 0:
+                remaining_availability = self._update_remaining_inventory(
+                    remaining_availability, tier_result, tier_reqs
+                )
+        
+        # Apply convergence gating if enabled
+        if apply_convergence_gating:
+            stranded_items = self._check_convergence_gating(tier_results, kit_reqs)
+        
+        # Build tier summary
+        tier_summary = {}
+        for tier, results in tier_results.items():
+            if len(results) > 0:
+                tier_summary[tier] = {
+                    "total_deployable": int(results["deployable_kits"].sum()),
+                    "total_buildable": int(results["buildable_kits"].sum()),
+                    "total_blocked": int(results["blocked_kits"].sum()),
+                    "completion_rate_pct": round(
+                        results["buildable_kits"].sum() / 
+                        max(results["deployable_kits"].sum(), 1) * 100, 1
+                    ),
+                }
+            else:
+                tier_summary[tier] = {
+                    "total_deployable": 0,
+                    "total_buildable": 0,
+                    "total_blocked": 0,
+                    "completion_rate_pct": 0.0,
+                }
+        
+        return {
+            "committed_results": tier_results.get("committed", pl.DataFrame()),
+            "likely_results": tier_results.get("likely", pl.DataFrame()),
+            "exploratory_results": tier_results.get("exploratory", pl.DataFrame()),
+            "stranded_inventory": pl.DataFrame(stranded_items) if stranded_items else pl.DataFrame(),
+            "tier_summary": tier_summary,
+        }
+    
+    def _update_remaining_inventory(
+        self,
+        availability: pl.DataFrame,
+        pegging_result: pl.DataFrame,
+        kit_reqs: pl.DataFrame
+    ) -> pl.DataFrame:
+        """
+        Update remaining inventory after a pegging pass.
+        
+        Subtracts consumed inventory from available quantities.
+        """
+        if len(pegging_result) == 0:
+            return availability
+        
+        # Calculate consumed quantities from buildable kits
+        consumed = (
+            kit_reqs
+            .join(
+                pegging_result.select(["week", "site_id", "kit_id", "buildable_kits"]),
+                on=["week", "site_id", "kit_id"],
+                how="inner"
+            )
+            .with_columns([
+                (pl.col("qty_per") * pl.col("buildable_kits")).alias("consumed_qty")
+            ])
+            .group_by(["week", "site_id", "item_id"])
+            .agg([
+                pl.col("consumed_qty").sum().alias("total_consumed")
+            ])
+        )
+        
+        if len(consumed) == 0:
+            return availability
+        
+        # Cast week column to consistent type for join
+        availability = availability.with_columns([
+            pl.col("week").cast(pl.Utf8).alias("week_str")
+        ])
+        consumed = consumed.with_columns([
+            pl.col("week").cast(pl.Utf8).alias("week_str")
+        ])
+        
+        # Join and subtract
+        updated = (
+            availability
+            .join(
+                consumed.select(["week_str", "site_id", "item_id", "total_consumed"]),
+                on=["week_str", "site_id", "item_id"],
+                how="left"
+            )
+            .with_columns([
+                pl.col("total_consumed").fill_null(0),
+                (pl.col("available") - pl.col("total_consumed").fill_null(0))
+                .clip(lower_bound=0)
+                .alias("available")
+            ])
+            .drop(["total_consumed", "week_str"])
+        )
+        
+        return updated
+    
+    def _check_convergence_gating(
+        self,
+        tier_results: dict[str, pl.DataFrame],
+        kit_reqs: pl.DataFrame
+    ) -> list[dict[str, Any]]:
+        """
+        Check for stranded inventory due to partial domain readiness.
+        
+        Flags inventory where some domains are ready but others are blocking.
+        """
+        stranded = []
+        
+        # Import square-set engine for domain checks
+        try:
+            from bufferlab_deploy.square_set_engine import SquareSetEngine
+            ss_engine = SquareSetEngine(self.loader)
+            domain_readiness = ss_engine.get_domain_readiness()
+            
+            if len(domain_readiness) == 0:
+                return stranded
+            
+            # Find cases where some domains ready, others not
+            partial_ready = (
+                domain_readiness
+                .filter(
+                    (pl.col("is_ready") == True) & 
+                    (pl.col("domain") != "all")
+                )
+            )
+            
+            if len(partial_ready) > 0:
+                for row in partial_ready.iter_rows(named=True):
+                    stranded.append({
+                        "site_id": row.get("site_id", ""),
+                        "week": str(row.get("week", "")),
+                        "domain": row.get("domain", ""),
+                        "status": "partial_ready",
+                        "reason": "Domain ready but other domains blocking square-set completion",
+                    })
+        except Exception:
+            pass  # Square-set engine not available
+        
+        return stranded
+    
     def _greedy_allocate(
         self,
         kit_reqs: pl.DataFrame,

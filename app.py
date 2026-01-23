@@ -743,7 +743,17 @@ def convergence():
     weekly_labels = []
     weekly_ready = []
     weekly_blocked = []
-    exceptions = []
+    
+    # Load build-ahead exceptions from session
+    exceptions = session.get('build_ahead_exceptions', [])
+    from datetime import date as dt_date
+    today = dt_date.today()
+    for exc in exceptions:
+        try:
+            end_date = dt_date.fromisoformat(exc.get('end_date', ''))
+            exc['is_expired'] = end_date < today
+        except (ValueError, TypeError):
+            exc['is_expired'] = False
     
     if loader and AppState.get_stats().get("contract_passed"):
         try:
@@ -1116,6 +1126,69 @@ def api_export_settings():
         mimetype='application/x-yaml',
         headers={'Content-Disposition': 'attachment; filename=settings.yml'}
     )
+
+
+# =============================================================================
+# Build-Ahead Exception API Endpoints
+# =============================================================================
+
+@app.route("/api/exceptions", methods=["GET"])
+def api_get_exceptions():
+    """Get all build-ahead exceptions."""
+    exceptions = session.get('build_ahead_exceptions', [])
+    
+    # Mark expired exceptions
+    from datetime import date
+    today = date.today()
+    for exc in exceptions:
+        try:
+            end_date = date.fromisoformat(exc.get('end_date', ''))
+            exc['is_expired'] = end_date < today
+        except (ValueError, TypeError):
+            exc['is_expired'] = False
+    
+    return jsonify({'success': True, 'exceptions': exceptions})
+
+
+@app.route("/api/exceptions", methods=["POST"])
+def api_add_exception():
+    """Add a new build-ahead exception."""
+    try:
+        data = request.json or {}
+        
+        new_exception = {
+            'id': datetime.now().strftime('%Y%m%d%H%M%S'),
+            'item_id': data.get('item_id', ''),
+            'site_id': data.get('site_id', ''),
+            'exception_type': data.get('exception_type', 'build_ahead'),
+            'approver': data.get('approver', ''),
+            'justification': data.get('justification', ''),
+            'end_date': data.get('end_date', ''),
+            'created_at': datetime.now().isoformat(),
+        }
+        
+        exceptions = session.get('build_ahead_exceptions', [])
+        exceptions.append(new_exception)
+        session['build_ahead_exceptions'] = exceptions
+        session.modified = True
+        
+        return jsonify({'success': True, 'exception': new_exception})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route("/api/exceptions/<exception_id>", methods=["DELETE"])
+def api_delete_exception(exception_id: str):
+    """Delete a build-ahead exception."""
+    try:
+        exceptions = session.get('build_ahead_exceptions', [])
+        exceptions = [e for e in exceptions if e.get('id') != exception_id]
+        session['build_ahead_exceptions'] = exceptions
+        session.modified = True
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 
 # =============================================================================

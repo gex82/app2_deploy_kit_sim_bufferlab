@@ -327,3 +327,161 @@ class BufferEngineV2:
                 pl.col("qty").mean().alias("avg_weekly_demand")
             ])
         )
+    
+    def calculate_value_at_risk(
+        self,
+        demand_tier: str = "committed",
+        days_to_risk_factor: float = 1.0,
+    ) -> pl.DataFrame:
+        """
+        Calculate value at risk for all items.
+        
+        Formula: value_at_risk = unit_cost × inventory_days × days_to_risk_factor
+        
+        This quantifies E&O exposure by combining:
+        - Item cost (unit_cost)
+        - Current inventory level (as days of coverage)
+        - Obsolescence timeline (days_to_risk_factor)
+        
+        Args:
+            demand_tier: Demand tier for buffer calculations
+            days_to_risk_factor: Multiplier for risk (default 1.0)
+        
+        Returns:
+            DataFrame with item_id, value_at_risk, and component values
+        """
+        # Get item buffers with segment info
+        buffers = self.calculate_item_buffers(demand_tier)
+        if len(buffers) == 0:
+            return pl.DataFrame()
+        
+        # Get item master for costs
+        item_master = self.loader.get_table("item_master")
+        if item_master is None or len(item_master) == 0:
+            return pl.DataFrame()
+        
+        # Get lifecycle for days to risk
+        lifecycle = self.loader.get_table("lifecycle")
+        
+        # Get current inventory
+        inventory = self.loader.get_table("inventory_position")
+        
+        # Build base DataFrame with costs
+        var_records = []
+        
+        for row in buffers.to_dicts():
+            item_id = row["item_id"]
+            
+            # Get unit cost
+            item_info = item_master.filter(pl.col("item_id") == item_id)
+            unit_cost = 0.0
+            if len(item_info) > 0:
+                cost_val = item_info.select("unit_cost")
+                if len(cost_val) > 0:
+                    unit_cost = float(cost_val[0, 0] or 0)
+            
+            # Get days to risk from lifecycle
+            days_to_risk = 365  # default 1 year
+            if lifecycle is not None and len(lifecycle) > 0:
+                lc_info = lifecycle.filter(pl.col("item_id") == item_id)
+                if len(lc_info) > 0:
+                    try:
+                        from datetime import date
+                        today = date.today()
+                        # Check for EOL or LTB dates
+                        eol = lc_info.select("eol_date")
+                        ltb = lc_info.select("ltb_date")
+                        
+                        if len(eol) > 0 and eol[0, 0] is not None:
+                            eol_date = eol[0, 0]
+                            if hasattr(eol_date, 'days'):
+                                days_to_risk = max(0, (eol_date - today).days)
+                            elif isinstance(eol_date, date):
+                                days_to_risk = max(0, (eol_date - today).days)
+                        elif len(ltb) > 0 and ltb[0, 0] is not None:
+                            ltb_date = ltb[0, 0]
+                            if hasattr(ltb_date, 'days'):
+                                days_to_risk = max(0, (ltb_date - today).days)
+                            elif isinstance(ltb_date, date):
+                                days_to_risk = max(0, (ltb_date - today).days)
+                    except Exception:
+                        pass  # Keep default
+            
+            # Get current inventory quantity
+            current_inventory = 0
+            if inventory is not None and len(inventory) > 0:
+                inv_info = inventory.filter(pl.col("item_id") == item_id)
+                if len(inv_info) > 0:
+                    current_inventory = int(inv_info.select("usable_on_hand").sum()[0, 0] or 0)
+            
+            # Calculate inventory days of coverage
+            avg_daily_demand = row["avg_weekly_demand"] / 7 if row["avg_weekly_demand"] > 0 else 0.001
+            inventory_days = current_inventory / avg_daily_demand if avg_daily_demand > 0 else 0
+            
+            # Calculate value at risk
+            # Formula: unit_cost × inventory_days × days_to_risk_factor
+            # Scale by inverse of days_to_risk (shorter time = higher risk)
+            risk_multiplier = days_to_risk_factor * (365 / max(days_to_risk, 1))
+            value_at_risk = unit_cost * inventory_days * risk_multiplier
+            
+            var_records.append({
+                "item_id": item_id,
+                "segment": row["segment"],
+                "is_high_eo": row["is_high_eo"],
+                "unit_cost": unit_cost,
+                "current_inventory": current_inventory,
+                "avg_daily_demand": round(avg_daily_demand, 2),
+                "inventory_days": round(inventory_days, 1),
+                "days_to_risk": days_to_risk,
+                "risk_multiplier": round(risk_multiplier, 3),
+                "value_at_risk": round(value_at_risk, 2),
+                "buffer_target_qty": row["buffer_target_qty"],
+                "excess_over_target": max(0, current_inventory - row["buffer_target_qty"]),
+            })
+        
+        result = pl.DataFrame(var_records)
+        
+        # Sort by value at risk descending
+        return result.sort("value_at_risk", descending=True)
+    
+    def get_value_at_risk_summary(
+        self,
+        demand_tier: str = "committed",
+    ) -> dict[str, Any]:
+        """
+        Get summary statistics for value at risk.
+        
+        Returns:
+            Dict with total_var, high_risk_items, segment_breakdown
+        """
+        var_df = self.calculate_value_at_risk(demand_tier)
+        if len(var_df) == 0:
+            return {
+                "total_value_at_risk": 0.0,
+                "high_risk_item_count": 0,
+                "total_excess_inventory": 0,
+                "segment_breakdown": {},
+            }
+        
+        # Calculate totals
+        total_var = float(var_df["value_at_risk"].sum())
+        high_risk_count = int(var_df.filter(pl.col("is_high_eo") == True).height)
+        total_excess = int(var_df["excess_over_target"].sum())
+        
+        # Breakdown by segment
+        segment_breakdown = {}
+        for segment in ["B1", "B2", "B3", "B4", "N1", "N2", "N3", "N4"]:
+            seg_data = var_df.filter(pl.col("segment") == segment)
+            if len(seg_data) > 0:
+                segment_breakdown[segment] = {
+                    "item_count": len(seg_data),
+                    "value_at_risk": round(float(seg_data["value_at_risk"].sum()), 2),
+                    "avg_inventory_days": round(float(seg_data["inventory_days"].mean()), 1),
+                }
+        
+        return {
+            "total_value_at_risk": round(total_var, 2),
+            "high_risk_item_count": high_risk_count,
+            "total_excess_inventory": total_excess,
+            "segment_breakdown": segment_breakdown,
+        }
