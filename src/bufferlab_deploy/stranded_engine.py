@@ -54,6 +54,7 @@ class StrandedEngine:
         blocked_items = (
             requirements
             .join(blocked_kits, on=["week", "site_id", "kit_id"], how="inner")
+            .filter(pl.col("kit_criticality") == "blocking")
             .select(["week", "site_id", "item_id"])
             .unique()
         )

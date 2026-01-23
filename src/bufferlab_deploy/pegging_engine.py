@@ -147,6 +147,8 @@ class PeggingEngine:
             
             # Consume inventory for built kits
             for i, item_id in enumerate(items):
+                if criticalities[i] != 'blocking':
+                    continue
                 key = (week, site_id, item_id)
                 consumed = buildable_kits * qtys_per[i]
                 if key in remaining_inv:

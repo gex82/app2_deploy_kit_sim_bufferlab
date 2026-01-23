@@ -105,6 +105,7 @@ class BlockerEngine:
                     LEFT JOIN readiness r 
                         ON dp.site_id = r.site_id 
                         AND dp.week = r.week
+                    WHERE COALESCE(b.kit_criticality, 'blocking') = 'blocking'
                     GROUP BY dp.week, dp.site_id, dp.kit_id, dp.priority, b.child_item_id
                 ),
                 site_inventory AS (
@@ -190,6 +191,7 @@ class BlockerEngine:
                 LEFT JOIN readiness r 
                     ON dp.site_id = r.site_id 
                     AND dp.week = r.week
+                WHERE COALESCE(b.kit_criticality, 'blocking') = 'blocking'
                 GROUP BY dp.week, dp.site_id, dp.kit_id, dp.priority, b.child_item_id
             ),
             site_inventory AS (
