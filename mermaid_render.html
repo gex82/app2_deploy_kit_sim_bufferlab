@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BufferLab Analytics Workflow</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            themeVariables: {
+                darkMode: true,
+                background: '#1e1e24',
+                primaryColor: '#a100ff',
+                secondaryColor: '#22c55e',
+                tertiaryColor: '#2a2a35',
+                primaryTextColor: '#fff',
+                secondaryTextColor: '#ddd',
+                lineColor: '#555'
+            }
+        });
+    </script>
+    <style>
+        body {
+            background-color: #1e1e24;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .mermaid {
+            background: #1e1e24;
+            padding: 20px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="mermaid">
+        sequenceDiagram
+        autonumber
+
+        box "User & Interface" #1e1e24
+        participant User as Business User
+        participant UI as BufferLab Dashboard
+        end
+
+        box "Data Foundation" #2a2a35
+        participant DataLake as Gold Data Lake
+        participant Contract as Data Contract
+        end
+
+        box "Transformation Engine" #22c55e
+        participant SqEngine as Square-Set Engine
+        participant SegEngine as Segmentation Engine
+        end
+
+        box "Analytics Core" #a100ff
+        participant BufferEng as Buffer Engine v2
+        participant ScenarioEng as Scenario Engine
+        participant Pegging as Pegging/Netting
+        end
+
+        %% Step 1: Ingestion
+        Note over User, Contract: 1. System Initialization & Data Load
+        User->>UI: Launch Application
+        UI->>DataLake: Request "Gold" Datasets
+        DataLake-->>Contract: Stream Tables (Supply, Demand, BOMs, etc.)
+        Contract->>Contract: Validate Schema & Rules
+        Contract-->>UI: Data Verified (or Alerts Raised)
+
+        %% Step 2: Transformation
+        Note over SqEngine, SegEngine: 2. Intelligent Transformation
+        UI->>SqEngine: Generate "Square Sets"
+        SqEngine->>SqEngine: Converge Domains (IT + Power + Network)
+        Note right of SqEngine: Transforms disparate BOMs<br />into single "Buildable Units"
+
+        UI->>SegEngine: Classify Item Portfolio
+        SegEngine->>SegEngine: Compute MECE Segments (B1-B4, N1-N4)
+        SegEngine->>SegEngine: Apply Overlay Tags (Transition, E&O)
+        Note right of SegEngine: Risk-profiles every single part
+
+        %% Step 3: Strategy
+        Note over BufferEng, ScenarioEng: 3. Strategy Application
+        UI->>BufferEng: Calculate Buffer Targets
+        BufferEng->>BufferEng: Apply Policy vs. Segment Risk
+        BufferEng->>BufferEng: Deduct E&O Penalties
+        Note right of BufferEng: "Target weeks of stock"<br />adjusted for risk & value
+
+        %% Step 4: Simulation
+        Note over ScenarioEng, Pegging: 4. Verification Simulation
+        User->>UI: Select Scenario (e.g., "Committed Only")
+        UI->>ScenarioEng: Run Simulation
+        ScenarioEng->>Pegging: Run Tiered Netting
+        Pegging->>Pegging: Commit Supply to Committed Demand first
+        Pegging->>Pegging: Allocate Remaining to Likely/Upside
+
+        ScenarioEng->>SqEngine: Check Convergence
+        SqEngine->>SqEngine: Can we build the full Square Set?
+        Note right of SqEngine: Gating Logic:<br />No build unless ALL domains ready
+
+        %% Step 5: Insights
+        Note over User, UI: 5. Decision & Reporting
+        ScenarioEng-->>UI: Simulation Results
+        UI-->>User: Visual Insights
+        Note right of User: • Completion Rate %<br />• Top Blockers<br />• Stranded Capital<br />• E&O Risks
+
+        User->>UI: Export Leadership Update
+        UI-->>User: Download JSON/Excel Report
+    </div>
+</body>
+
+</html>

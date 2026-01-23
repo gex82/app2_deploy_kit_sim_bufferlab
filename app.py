@@ -9,7 +9,7 @@ import sys
 from datetime import datetime, date
 from pathlib import Path
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session
 import polars as pl
 
 # Add src to path
@@ -25,6 +25,8 @@ from bufferlab_deploy.stranded_engine import StrandedEngine
 from bufferlab_deploy.buffer_engine import BufferEngine
 from bufferlab_deploy.scenario_engine import ScenarioEngine
 from bufferlab_deploy.sql_utils import get_plan_table
+from bufferlab_deploy.square_set_engine import SquareSetEngine
+from bufferlab_deploy.segmentation_engine import SegmentationEngine, SegmentationThresholds
 
 
 app = Flask(__name__)
@@ -717,6 +719,202 @@ def error_page():
     )
 
 
+@app.route("/settings")
+def settings():
+    """Settings page for configuring thresholds."""
+    # Get thresholds from session or defaults
+    if 'thresholds' in session:
+        thresholds = SegmentationThresholds(**session['thresholds'])
+    else:
+        thresholds = SegmentationThresholds()
+    
+    return render_template("settings.html", thresholds=thresholds)
+
+
+@app.route("/convergence")
+def convergence():
+    """Square-set convergence dashboard."""
+    loader = AppState.loader
+    scenario_id = AppState.current_scenario or get_config().analysis.default_scenario
+    weeks = _get_weeks(loader)
+    
+    conv_stats = {"fully_ready": 0, "blocked": 0, "convergence_rate": 0, "weeks": len(weeks)}
+    convergence_data = []
+    weekly_labels = []
+    weekly_ready = []
+    weekly_blocked = []
+    exceptions = []
+    
+    if loader and AppState.get_stats().get("contract_passed"):
+        try:
+            square_set_engine = SquareSetEngine(loader)
+            
+            # Get convergence summary
+            summary = square_set_engine.get_convergence_summary(scenario_id)
+            
+            if len(summary) > 0:
+                conv_stats["fully_ready"] = int(summary["all_domains_ready"].sum())
+                conv_stats["blocked"] = int((~summary["all_domains_ready"]).sum())
+                total = len(summary)
+                if total > 0:
+                    conv_stats["convergence_rate"] = round(conv_stats["fully_ready"] / total * 100, 1)
+                
+                # Get domain readiness for detail view
+                domain_readiness = square_set_engine.get_domain_readiness(scenario_id)
+                
+                # Build convergence data for table
+                for row in summary.to_dicts():
+                    # Determine domain readiness
+                    ss_id = row["square_set_id"]
+                    site_id = row["site_id"]
+                    week = row["week"]
+                    
+                    dr = domain_readiness.filter(
+                        (pl.col("square_set_id") == ss_id) &
+                        (pl.col("site_id") == site_id) &
+                        (pl.col("week") == week)
+                    )
+                    
+                    it_rack_ready = True
+                    callan_ready = True
+                    mor_ready = True
+                    
+                    if len(dr) > 0:
+                        for d in dr.to_dicts():
+                            if d["domain"] == "it_rack":
+                                it_rack_ready = d["is_ready"]
+                            elif d["domain"] == "callan":
+                                callan_ready = d["is_ready"]
+                            elif d["domain"] == "mor":
+                                mor_ready = d["is_ready"]
+                    
+                    convergence_data.append({
+                        "week": _format_week(row["week"]),
+                        "site_id": row["site_id"],
+                        "square_set_id": row["square_set_id"],
+                        "all_domains_ready": row["all_domains_ready"],
+                        "it_rack_ready": it_rack_ready,
+                        "callan_ready": callan_ready,
+                        "mor_ready": mor_ready,
+                        "missing_domains": row.get("missing_domains", []),
+                    })
+                
+                # Weekly chart data
+                weekly_stats = square_set_engine.get_weekly_convergence_stats(scenario_id)
+                if len(weekly_stats) > 0:
+                    weekly_labels = [_format_week(r["week"]) for r in weekly_stats.to_dicts()]
+                    weekly_ready = [int(r["fully_ready_sets"]) for r in weekly_stats.to_dicts()]
+                    weekly_blocked = [int(r["blocked_sets"]) for r in weekly_stats.to_dicts()]
+        except Exception as e:
+            print(f"Convergence error: {e}")
+    
+    return render_template(
+        "convergence.html",
+        conv_stats=conv_stats,
+        convergence_data=convergence_data,
+        weeks=weeks,
+        weekly_labels=weekly_labels,
+        weekly_ready=weekly_ready,
+        weekly_blocked=weekly_blocked,
+        exceptions=exceptions,
+    )
+
+
+@app.route("/segmentation")
+def segmentation():
+    """Segmentation page showing B1-B4, N1-N4 classification."""
+    loader = AppState.loader
+    
+    segment_counts = {s: 0 for s in ["B1", "B2", "B3", "B4", "N1", "N2", "N3", "N4"]}
+    tag_counts = {
+        "transition_active": 0,
+        "shared_component": 0,
+        "long_lead_foundation": 0,
+        "build_ahead_sensitivity": 0,
+        "break_glass_exception": 0,
+    }
+    items = []
+    
+    if loader and AppState.get_stats().get("contract_passed"):
+        try:
+            # Get thresholds from session
+            if 'thresholds' in session:
+                thresholds = SegmentationThresholds(**session['thresholds'])
+            else:
+                thresholds = SegmentationThresholds()
+            
+            seg_engine = SegmentationEngine(loader, thresholds)
+            segmentation_df = seg_engine.get_full_segmentation()
+            
+            if len(segmentation_df) > 0:
+                # Get segment counts
+                seg_summary = seg_engine.get_segment_summary()
+                for row in seg_summary.to_dicts():
+                    segment_counts[row["segment"]] = int(row["item_count"])
+                
+                # Get tag counts
+                tag_summary = seg_engine.get_overlay_tag_summary()
+                for row in tag_summary.to_dicts():
+                    tag_counts[row["tag"]] = int(row["count"])
+                
+                # Get items for table
+                items = segmentation_df.head(100).to_dicts()
+        except Exception as e:
+            print(f"Segmentation error: {e}")
+    
+    return render_template(
+        "segmentation.html",
+        segment_counts=segment_counts,
+        tag_counts=tag_counts,
+        items=items,
+    )
+
+
+@app.route("/engineering")
+def engineering():
+    """Engineering insights - GPU generations and substitution paths."""
+    loader = AppState.loader
+    
+    generations = []
+    transitions = []
+    substitutions = []
+    
+    if loader and AppState.get_stats().get("contract_passed"):
+        try:
+            # Get lifecycle data for transitions
+            if loader.loaded_tables.get("lifecycle"):
+                lifecycle = loader.query("""
+                    SELECT 
+                        item_id,
+                        generation,
+                        status,
+                        ltb_date,
+                        eol_date,
+                        transition_start_date,
+                        transition_end_date
+                    FROM lifecycle
+                    ORDER BY generation, item_id
+                """)
+                transitions = lifecycle.to_dicts() if len(lifecycle) > 0 else []
+            
+            # Get substitution paths if available
+            if loader.loaded_tables.get("substitution_map"):
+                subs = loader.query("""
+                    SELECT * FROM substitution_map
+                    ORDER BY from_item_id
+                """)
+                substitutions = subs.to_dicts() if len(subs) > 0 else []
+        except Exception:
+            pass
+    
+    return render_template(
+        "engineering.html",
+        generations=generations,
+        transitions=transitions,
+        substitutions=substitutions,
+    )
+
+
 # =============================================================================
 # API Endpoints
 # =============================================================================
@@ -842,6 +1040,277 @@ def api_table_info(table_name: str):
         "columns": stats.get("columns", []),
         "sample": sample_data,
     })
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_save_settings():
+    """Save segmentation settings."""
+    try:
+        data = request.json or request.form.to_dict()
+        
+        thresholds_dict = {
+            'high_eo_unit_cost': float(data.get('high_eo_unit_cost', 5000)),
+            'high_eo_days_to_risk': int(data.get('high_eo_days_to_risk', 90)),
+            'constrained_lead_time': int(data.get('constrained_lead_time', 45)),
+            'constrained_confidence': float(data.get('constrained_confidence', 0.70)),
+            'long_lead_threshold': int(data.get('long_lead_threshold', 60)),
+            'long_lead_days_to_risk_min': int(data.get('long_lead_days_to_risk_min', 180)),
+            'build_ahead_stranding_pct': float(data.get('build_ahead_stranding_pct', 0.30)),
+            'shared_usage_threshold': int(data.get('shared_usage_threshold', 1)),
+            'committed_max_coverage_weeks': int(data.get('committed_max_coverage_weeks', 6)),
+            'likely_max_coverage_weeks': int(data.get('likely_max_coverage_weeks', 2)),
+            'exploratory_coverage_weeks': int(data.get('exploratory_coverage_weeks', 0)),
+            'transition_buffer_reduction_pct': float(data.get('transition_buffer_reduction_pct', 0.33)),
+        }
+        
+        session['thresholds'] = thresholds_dict
+        session.modified = True
+        
+        return jsonify({'success': True, 'message': 'Settings saved successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route("/api/settings/reset", methods=["POST"])
+def api_reset_settings():
+    """Reset settings to defaults."""
+    session.pop('thresholds', None)
+    session.modified = True
+    return jsonify({'success': True, 'message': 'Settings reset to defaults'})
+
+
+@app.route("/api/settings/export", methods=["GET"])
+def api_export_settings():
+    """Export current settings as YAML."""
+    import yaml
+    
+    if 'thresholds' in session:
+        thresholds = session['thresholds']
+    else:
+        thresholds = SegmentationThresholds().__dict__
+    
+    settings_dict = {
+        'segmentation_thresholds': {
+            'high_eo_unit_cost': thresholds.get('high_eo_unit_cost', 5000),
+            'high_eo_days_to_risk': thresholds.get('high_eo_days_to_risk', 90),
+            'constrained_lead_time': thresholds.get('constrained_lead_time', 45),
+            'constrained_confidence': thresholds.get('constrained_confidence', 0.70),
+            'long_lead_threshold': thresholds.get('long_lead_threshold', 60),
+            'long_lead_days_to_risk_min': thresholds.get('long_lead_days_to_risk_min', 180),
+            'build_ahead_stranding_pct': thresholds.get('build_ahead_stranding_pct', 0.30),
+            'shared_usage_threshold': thresholds.get('shared_usage_threshold', 1),
+        },
+        'buffer_policy': {
+            'committed_max_coverage_weeks': thresholds.get('committed_max_coverage_weeks', 6),
+            'likely_max_coverage_weeks': thresholds.get('likely_max_coverage_weeks', 2),
+            'exploratory_coverage_weeks': thresholds.get('exploratory_coverage_weeks', 0),
+            'transition_buffer_reduction_pct': thresholds.get('transition_buffer_reduction_pct', 0.33),
+        }
+    }
+    
+    yaml_content = yaml.dump(settings_dict, default_flow_style=False)
+    
+    from flask import Response
+    return Response(
+        yaml_content,
+        mimetype='application/x-yaml',
+        headers={'Content-Disposition': 'attachment; filename=settings.yml'}
+    )
+
+
+# =============================================================================
+# Governance & Reporting Export Routes
+# =============================================================================
+
+@app.route("/export/weekly-status")
+def export_weekly_status():
+    """Export weekly status report as JSON."""
+    from flask import Response
+    import json
+    
+    loader = AppState.loader
+    scenario_id = AppState.current_scenario or get_config().analysis.default_scenario
+    
+    report = {
+        "report_type": "weekly_status",
+        "generated_at": datetime.now().isoformat(),
+        "scenario_id": scenario_id,
+        "summary": {},
+        "convergence": {},
+        "blockers": [],
+        "buffer_status": {},
+    }
+    
+    if loader and AppState.get_stats().get("contract_passed"):
+        try:
+            # Get scenario summary
+            scenario_engine = ScenarioEngine(loader)
+            report["summary"] = scenario_engine.get_scenario_summary(scenario_id)
+            
+            # Get convergence data
+            square_set_engine = SquareSetEngine(loader)
+            summary = square_set_engine.get_convergence_summary(scenario_id)
+            if len(summary) > 0:
+                report["convergence"] = {
+                    "fully_ready": int(summary["all_domains_ready"].sum()),
+                    "blocked": int((~summary["all_domains_ready"]).sum()),
+                    "total_sets": len(summary),
+                }
+            
+            # Get top blockers
+            blocker_engine = BlockerEngine(loader)
+            blockers = blocker_engine.get_blocker_attribution(scenario_id)
+            if len(blockers) > 0:
+                top_blockers = blockers.sort("gap_qty", descending=True).head(10)
+                report["blockers"] = top_blockers.to_dicts()
+            
+            # Get buffer status from segmentation
+            seg_engine = SegmentationEngine(loader)
+            seg_summary = seg_engine.get_segment_summary()
+            if len(seg_summary) > 0:
+                report["buffer_status"] = {
+                    "segment_counts": seg_summary.to_dicts(),
+                }
+        except Exception as e:
+            report["error"] = str(e)
+    
+    return Response(
+        json.dumps(report, indent=2, default=str),
+        mimetype='application/json',
+        headers={'Content-Disposition': f'attachment; filename=weekly_status_{datetime.now().strftime("%Y%m%d")}.json'}
+    )
+
+
+@app.route("/export/leadership-update")
+def export_leadership_update():
+    """Export 4-week leadership update report as JSON."""
+    from flask import Response
+    import json
+    from datetime import timedelta
+    
+    loader = AppState.loader
+    scenario_id = AppState.current_scenario or get_config().analysis.default_scenario
+    
+    today = date.today()
+    four_weeks_ago = today - timedelta(weeks=4)
+    
+    report = {
+        "report_type": "leadership_update",
+        "generated_at": datetime.now().isoformat(),
+        "period": {
+            "start": four_weeks_ago.isoformat(),
+            "end": today.isoformat(),
+        },
+        "scenario_id": scenario_id,
+        "executive_summary": {},
+        "key_metrics": {},
+        "risk_items": [],
+        "recommendations": [],
+    }
+    
+    if loader and AppState.get_stats().get("contract_passed"):
+        try:
+            scenario_engine = ScenarioEngine(loader)
+            
+            # Get tiered summary for executive view
+            tiered = scenario_engine.get_tiered_summary(scenario_id)
+            report["executive_summary"] = {
+                "committed": tiered["committed"],
+                "likely": tiered["likely"],
+                "total": tiered["total"],
+            }
+            
+            # Key metrics
+            total_summary = tiered["total"]
+            report["key_metrics"] = {
+                "completion_rate": total_summary.get("completion_rate", 0),
+                "total_deployable": total_summary.get("total_deployable", 0),
+                "total_blocked": total_summary.get("total_blocked", 0),
+                "stranded_value": total_summary.get("stranded_value", 0),
+            }
+            
+            # Get high-risk items (blockers with high gap)
+            blocker_engine = BlockerEngine(loader)
+            blockers = blocker_engine.get_blocker_attribution(scenario_id)
+            if len(blockers) > 0:
+                high_risk = blockers.filter(pl.col("gap_qty") > 10).sort("gap_qty", descending=True).head(5)
+                report["risk_items"] = high_risk.to_dicts()
+            
+            # Auto-generate recommendations based on data
+            recommendations = []
+            if total_summary.get("completion_rate", 0) < 80:
+                recommendations.append({
+                    "priority": "high",
+                    "area": "completion_rate",
+                    "recommendation": "Focus on resolving top blockers to improve completion rate.",
+                })
+            if total_summary.get("stranded_value", 0) > 100000:
+                recommendations.append({
+                    "priority": "medium",
+                    "area": "stranded_inventory",
+                    "recommendation": "Review stranded inventory for potential reallocation or disposal.",
+                })
+            report["recommendations"] = recommendations
+            
+        except Exception as e:
+            report["error"] = str(e)
+    
+    return Response(
+        json.dumps(report, indent=2, default=str),
+        mimetype='application/json',
+        headers={'Content-Disposition': f'attachment; filename=leadership_update_{datetime.now().strftime("%Y%m%d")}.json'}
+    )
+
+
+@app.route("/export/buffer-analysis")
+def export_buffer_analysis():
+    """Export buffer analysis with E&O impact as JSON."""
+    from flask import Response
+    import json
+    
+    loader = AppState.loader
+    
+    report = {
+        "report_type": "buffer_analysis",
+        "generated_at": datetime.now().isoformat(),
+        "by_segment": [],
+        "by_location": [],
+        "eo_impact": {},
+        "items": [],
+    }
+    
+    if loader and AppState.get_stats().get("contract_passed"):
+        try:
+            from bufferlab_deploy.buffer_engine_v2 import BufferEngineV2
+            
+            buffer_engine = BufferEngineV2(loader)
+            
+            # Get buffer summary by segment
+            seg_summary = buffer_engine.get_buffer_summary_by_segment("committed")
+            if len(seg_summary) > 0:
+                report["by_segment"] = seg_summary.to_dicts()
+            
+            # Get buffer summary by location
+            loc_summary = buffer_engine.get_buffer_summary_by_location("committed")
+            if len(loc_summary) > 0:
+                report["by_location"] = loc_summary.to_dicts()
+            
+            # Get E&O impact
+            report["eo_impact"] = buffer_engine.calculate_eo_penalty_impact("committed")
+            
+            # Get item-level buffers (limited to top 100)
+            item_buffers = buffer_engine.calculate_item_buffers("committed")
+            if len(item_buffers) > 0:
+                report["items"] = item_buffers.head(100).to_dicts()
+                
+        except Exception as e:
+            report["error"] = str(e)
+    
+    return Response(
+        json.dumps(report, indent=2, default=str),
+        mimetype='application/json',
+        headers={'Content-Disposition': f'attachment; filename=buffer_analysis_{datetime.now().strftime("%Y%m%d")}.json'}
+    )
 
 
 # =============================================================================

@@ -1,0 +1,561 @@
+{% extends "base.html" %}
+
+{% block title %}Convergence Dashboard - BufferLab Deploy{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Square-Set Convergence</h1>
+    <p class="subtitle">Track domain readiness and deployment convergence by site and week</p>
+</div>
+
+<!-- Weekly Convergence Stats -->
+<section class="stats-cards">
+    <div class="stat-card">
+        <div class="stat-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+        </div>
+        <div class="stat-content">
+            <span class="stat-label">Fully Ready Sets</span>
+            <span class="stat-value" id="ready-sets">{{ conv_stats.fully_ready or 0 }}</span>
+        </div>
+    </div>
+
+    <div class="stat-card warning">
+        <div class="stat-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        </div>
+        <div class="stat-content">
+            <span class="stat-label">Blocked Sets</span>
+            <span class="stat-value" id="blocked-sets">{{ conv_stats.blocked or 0 }}</span>
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="20" x2="12" y2="10"></line>
+                <line x1="18" y1="20" x2="18" y2="4"></line>
+                <line x1="6" y1="20" x2="6" y2="16"></line>
+            </svg>
+        </div>
+        <div class="stat-content">
+            <span class="stat-label">Convergence Rate</span>
+            <span class="stat-value" id="convergence-rate">{{ conv_stats.convergence_rate or 0 }}%</span>
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+        </div>
+        <div class="stat-content">
+            <span class="stat-label">Planning Horizon</span>
+            <span class="stat-value">{{ conv_stats.weeks or 12 }} weeks</span>
+        </div>
+    </div>
+</section>
+
+<!-- Domain Legend -->
+<section class="domain-legend">
+    <div class="legend-item">
+        <span class="domain-badge it-rack">IT Rack</span>
+        <span class="legend-desc">GPU servers, compute, accelerators</span>
+    </div>
+    <div class="legend-item">
+        <span class="domain-badge callan">Callan/HXU</span>
+        <span class="legend-desc">Cooling, power distribution</span>
+    </div>
+    <div class="legend-item">
+        <span class="domain-badge mor">MOR/Network</span>
+        <span class="legend-desc">Fabric, switches, cabling</span>
+    </div>
+</section>
+
+<!-- Weekly Convergence Chart -->
+<section class="chart-section">
+    <div class="section-header">
+        <h2>Weekly Convergence Trend</h2>
+    </div>
+    <div class="chart-container">
+        <canvas id="convergence-chart" height="250"></canvas>
+    </div>
+</section>
+
+<!-- Site-Level Convergence -->
+<section class="convergence-grid">
+    <div class="section-header">
+        <h2>Site Convergence Details</h2>
+        <div class="filter-controls">
+            <select id="week-filter" onchange="filterByWeek(this.value)">
+                <option value="">All Weeks</option>
+                {% for week in weeks %}
+                <option value="{{ week }}">{{ week }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="convergence-table-wrapper">
+        <table class="convergence-table">
+            <thead>
+                <tr>
+                    <th>Week</th>
+                    <th>Site</th>
+                    <th>Square-Set</th>
+                    <th>IT Rack</th>
+                    <th>Callan</th>
+                    <th>MOR</th>
+                    <th>Status</th>
+                    <th>Missing Domains</th>
+                </tr>
+            </thead>
+            <tbody id="convergence-tbody">
+                {% for row in convergence_data %}
+                <tr class="{{ 'ready' if row.all_domains_ready else 'blocked' }}">
+                    <td>{{ row.week }}</td>
+                    <td>{{ row.site_id }}</td>
+                    <td>{{ row.square_set_id }}</td>
+                    <td>
+                        <span class="domain-status {{ 'ready' if row.it_rack_ready else 'blocked' }}">
+                            {{ '✓' if row.it_rack_ready else '✗' }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="domain-status {{ 'ready' if row.callan_ready else 'blocked' }}">
+                            {{ '✓' if row.callan_ready else '✗' }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="domain-status {{ 'ready' if row.mor_ready else 'blocked' }}">
+                            {{ '✓' if row.mor_ready else '✗' }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="status-badge {{ 'ready' if row.all_domains_ready else 'blocked' }}">
+                            {{ 'Ready' if row.all_domains_ready else 'Blocked' }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if row.missing_domains %}
+                        <span class="missing-domains">{{ row.missing_domains | join(', ') }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="empty-state">
+                        No convergence data available. Load gold data first.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- Build-Ahead Exceptions -->
+<section class="exceptions-section">
+    <div class="section-header">
+        <h2>Build-Ahead Exceptions</h2>
+        <button class="btn-outline" onclick="openExceptionModal()">
+            + Add Exception
+        </button>
+    </div>
+
+    <div class="exceptions-list">
+        {% for exc in exceptions %}
+        <div class="exception-card {{ 'expired' if exc.is_expired else '' }}">
+            <div class="exception-header">
+                <span class="exception-id">{{ exc.item_id }}</span>
+                <span class="exception-badge">{{ exc.exception_type }}</span>
+            </div>
+            <div class="exception-meta">
+                <span>Approver: {{ exc.approver }}</span>
+                <span>Expires: {{ exc.end_date }}</span>
+            </div>
+            <p class="exception-justification">{{ exc.justification }}</p>
+        </div>
+        {% else %}
+        <div class="empty-exceptions">
+            No build-ahead exceptions configured.
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<style>
+    .stats-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .stat-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .stat-card.warning .stat-icon {
+        background: linear-gradient(135deg, #f97316, #ea580c);
+    }
+
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        background: var(--gradient-primary);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+    }
+
+    .stat-content {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .stat-label {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+    }
+
+    .stat-value {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: var(--text-color);
+    }
+
+    .domain-legend {
+        display: flex;
+        gap: 2rem;
+        padding: 1rem 1.5rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        margin-bottom: 2rem;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .domain-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .domain-badge.it-rack {
+        background: rgba(161, 0, 255, 0.2);
+        color: #a100ff;
+    }
+
+    .domain-badge.callan {
+        background: rgba(249, 115, 22, 0.2);
+        color: #f97316;
+    }
+
+    .domain-badge.mor {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .legend-desc {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+    }
+
+    .chart-section {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .chart-container {
+        position: relative;
+        height: 250px;
+    }
+
+    .convergence-grid {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .section-header h2 {
+        font-size: 1.25rem;
+        color: var(--text-color);
+        margin: 0;
+    }
+
+    .filter-controls select {
+        padding: 0.5rem 1rem;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        color: var(--text-color);
+    }
+
+    .convergence-table-wrapper {
+        overflow-x: auto;
+    }
+
+    .convergence-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .convergence-table th,
+    .convergence-table td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .convergence-table th {
+        background: rgba(255, 255, 255, 0.02);
+        font-weight: 500;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        text-transform: uppercase;
+    }
+
+    .convergence-table tr.blocked {
+        background: rgba(239, 68, 68, 0.05);
+    }
+
+    .domain-status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        font-weight: 600;
+    }
+
+    .domain-status.ready {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .domain-status.blocked {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .status-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+
+    .status-badge.ready {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .status-badge.blocked {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .missing-domains {
+        color: #f97316;
+        font-size: 0.85rem;
+    }
+
+    .exceptions-section {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+    }
+
+    .btn-outline {
+        padding: 0.5rem 1rem;
+        background: transparent;
+        border: 1px solid var(--primary-color);
+        color: var(--primary-color);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .btn-outline:hover {
+        background: rgba(161, 0, 255, 0.1);
+    }
+
+    .exceptions-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1rem;
+    }
+
+    .exception-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+    }
+
+    .exception-card.expired {
+        opacity: 0.6;
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .exception-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+    }
+
+    .exception-id {
+        font-weight: 600;
+        color: var(--text-color);
+    }
+
+    .exception-badge {
+        font-size: 0.75rem;
+        background: rgba(161, 0, 255, 0.2);
+        color: var(--primary-color);
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+    }
+
+    .exception-meta {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-bottom: 0.5rem;
+    }
+
+    .exception-justification {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin: 0;
+    }
+
+    .empty-exceptions {
+        padding: 2rem;
+        text-align: center;
+        color: var(--text-muted);
+    }
+
+    .empty-state {
+        padding: 2rem;
+        text-align: center;
+        color: var(--text-muted);
+    }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Chart data from server
+    var chartLabels = {{ weekly_labels | tojson }};
+    var chartReady = {{ weekly_ready | tojson }};
+    var chartBlocked = {{ weekly_blocked | tojson }};
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var ctx = document.getElementById('convergence-chart');
+        if (ctx && chartLabels.length > 0) {
+            new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: chartLabels,
+                    datasets: [
+                        {
+                            label: 'Ready Sets',
+                            data: chartReady,
+                            backgroundColor: '#22c55e'
+                        },
+                        {
+                            label: 'Blocked Sets',
+                            data: chartBlocked,
+                            backgroundColor: '#ef4444'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: { color: '#9ca3af' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            ticks: { color: '#9ca3af' },
+                            grid: { color: 'rgba(255,255,255,0.05)' }
+                        },
+                        y: {
+                            stacked: true,
+                            ticks: { color: '#9ca3af' },
+                            grid: { color: 'rgba(255,255,255,0.05)' }
+                        }
+                    }
+                }
+            });
+        }
+    });
+
+    function filterByWeek(week) {
+        var rows = document.querySelectorAll('#convergence-tbody tr');
+        rows.forEach(function (row) {
+            if (!week || row.cells[0].textContent === week) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    function openExceptionModal() {
+        alert('Exception modal coming soon');
+    }
+</script>
+{% endblock %}
