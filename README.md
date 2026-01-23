@@ -1,6 +1,6 @@
-# BufferLab - Deployment & Kit Readiness (App 2)
+# BufferLab - Deployment & Square-Set Readiness (App 2)
 
-Local-first analytics app for GPU buffer strategy: kit readiness, priority pegging, netting ledger, long-pole blockers, stranded inventory, and buffer targets. Built on Flask + DuckDB with an Accenture-inspired dark UI.
+Local-first analytics app for GPU buffer strategy: square-set readiness, priority pegging, netting ledger, long-pole blockers, stranded inventory, and buffer targets. Built on Flask + DuckDB with an Accenture-inspired dark UI.
 
 ## Requirements
 - Python 3.11+
@@ -35,6 +35,7 @@ Optional tables (used if present):
 - `lead_time_distribution` or `lead_time_history`
 - `lifecycle`
 - `substitution_map`
+- `square_set_master`
 
 If any contract check fails, App 2 shows a Data Contract Error page with remediation guidance pointing back to App 1.
 
@@ -50,7 +51,7 @@ Key settings:
 
 ## UI Pages
 - Overview: KPIs + completion and blocked trends
-- Kit Readiness: planned vs deployable vs buildable + week drilldown
+- Square-Set Readiness: planned vs deployable vs buildable + week drilldown
 - Priority & Pegging: allocation by priority buckets and kit outcomes
 - Long Poles: blocker Pareto, root causes, fix recommendations
 - Stranded Inventory: units and $ at risk, blocker context
@@ -63,6 +64,11 @@ Key settings:
 - Pegging allocates scarce components by priority (1 = highest).
 - Transfer modeling shifts upstream inventory/supply by lead time.
 - Buffer targets are policy-based heuristic (v1), not an optimizer.
+
+## Data Privacy
+- BufferLab Deploy stores data locally in DuckDB and reads from `data/gold`.
+- No PII should be present in App 1 exports; sanitize upstream data if needed.
+- Data retention is controlled via local file cleanup policies for `data/gold` and `data/runs`.
 
 ## Tests
 ```bash

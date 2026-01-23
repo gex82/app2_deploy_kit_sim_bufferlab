@@ -152,7 +152,8 @@ class BufferEngineV2:
             return pl.DataFrame()
         
         # Get weekly demand for sizing
-        weekly_demand = self._get_weekly_demand()
+        weekly_demand = self._get_weekly_demand(demand_tier)
+        inventory_days = self._get_inventory_days()
         
         # Calculate buffers for each item
         buffer_records = []
@@ -187,11 +188,26 @@ class BufferEngineV2:
             avg_weekly_demand = 0.0
             if len(item_weekly) > 0:
                 avg_weekly_demand = float(item_weekly["avg_weekly_demand"][0])
+
+            inventory_days_value = 0.0
+            if len(inventory_days) > 0:
+                inv_match = inventory_days.filter(pl.col("item_id") == item_id)
+                if len(inv_match) > 0:
+                    inventory_days_value = float(inv_match["inventory_days"][0] or 0)
+            days_to_risk = float(row.get("days_to_risk", 0) or 0)
+            days_to_risk_factor = min(max(days_to_risk / 365.0, 0.0), 1.0)
+            unit_cost = float(row.get("unit_cost", 0) or 0)
+            value_at_risk = unit_cost * inventory_days_value * days_to_risk_factor
             
             # Calculate qty targets
             min_buffer_qty = int(avg_weekly_demand * policy.min_weeks)
             max_buffer_qty = int(avg_weekly_demand * policy.max_weeks)
-            target_weeks = (policy.min_weeks + policy.max_weeks) / 2
+            if demand_tier == "committed":
+                target_weeks = policy.max_weeks
+            elif demand_tier == "likely":
+                target_weeks = policy.min_weeks
+            else:
+                target_weeks = 0
             target_qty = int(avg_weekly_demand * target_weeks)
             
             buffer_records.append({
@@ -202,8 +218,9 @@ class BufferEngineV2:
                 "is_constrained": row.get("is_constrained", False),
                 "is_high_eo": row.get("is_high_eo", False),
                 "avg_weekly_demand": avg_weekly_demand,
+                "value_at_risk": round(value_at_risk, 2),
                 "buffer_target_qty": target_qty,
-                "buffer_target_weeks": round(target_weeks, 1),
+                "buffer_target_weeks": round(float(target_weeks), 1),
                 "min_buffer_qty": min_buffer_qty,
                 "max_buffer_qty": max_buffer_qty,
                 "min_weeks": policy.min_weeks,
@@ -313,18 +330,62 @@ class BufferEngineV2:
             "estimated_savings": round(estimated_savings, 2),
         }
     
-    def _get_weekly_demand(self) -> pl.DataFrame:
-        """Get average weekly demand per item."""
+    def _get_weekly_demand(self, demand_tier: str) -> pl.DataFrame:
+        """Get average weekly demand per item for a tier."""
         demand = self.loader.get_table("demand_plan")
-        if demand is None or len(demand) == 0:
+        if demand is not None and len(demand) > 0:
+            if "demand_tier" in demand.columns:
+                demand = demand.filter(pl.col("demand_tier") == demand_tier)
+            elif "demand_type" in demand.columns:
+                demand = demand.with_columns([
+                    pl.when(pl.col("demand_type").is_in(["committed", "firm", "booked"]))
+                    .then(pl.lit("committed"))
+                    .when(pl.col("demand_type").is_in(["likely", "probable", "forecast"]))
+                    .then(pl.lit("likely"))
+                    .otherwise(pl.lit("exploratory"))
+                    .alias("tier")
+                ]).filter(pl.col("tier") == demand_tier)
+
+            if len(demand) > 0:
+                return (
+                    demand
+                    .group_by("item_id")
+                    .agg([
+                        pl.col("qty").mean().alias("avg_weekly_demand")
+                    ])
+                )
+
+        # Fallback to deployment-plan driven requirements
+        from bufferlab_deploy.kit_engine import KitEngine
+
+        requirements = KitEngine(self.loader).get_aggregated_requirements()
+        if len(requirements) == 0:
             return pl.DataFrame({"item_id": [], "avg_weekly_demand": []})
-        
-        # Calculate average weekly demand
+
+        if "demand_tier" in requirements.columns:
+            requirements = requirements.filter(pl.col("demand_tier") == demand_tier)
+
         return (
-            demand
+            requirements
             .group_by("item_id")
             .agg([
-                pl.col("qty").mean().alias("avg_weekly_demand")
+                pl.col("total_required").mean().alias("avg_weekly_demand")
+            ])
+        )
+
+    def _get_inventory_days(self) -> pl.DataFrame:
+        """Get inventory days (aging) by item if available."""
+        inventory = self.loader.get_table("inventory_position")
+        if inventory is None or len(inventory) == 0:
+            return pl.DataFrame({"item_id": [], "inventory_days": []})
+        if "aging_days" not in inventory.columns:
+            return pl.DataFrame({"item_id": [], "inventory_days": []})
+
+        return (
+            inventory
+            .group_by("item_id")
+            .agg([
+                pl.col("aging_days").max().alias("inventory_days")
             ])
         )
     

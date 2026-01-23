@@ -34,6 +34,7 @@ OPTIONAL_TABLES = [
     "lead_time_distribution",
     "lifecycle",
     "substitution_map",
+    "square_set_master",
 ]
 
 

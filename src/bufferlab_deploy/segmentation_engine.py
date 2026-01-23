@@ -15,6 +15,8 @@ import polars as pl
 
 from bufferlab_deploy.duckdb_loader import DuckDBLoader
 from bufferlab_deploy.config import get_config
+from bufferlab_deploy.kit_engine import KitEngine
+from bufferlab_deploy.stranded_engine import StrandedEngine
 
 
 @dataclass
@@ -99,10 +101,10 @@ class SegmentationEngine:
         
         # Get constraint status from supply data
         try:
-            constrained_status = self.loader.query(f"""
+            constrained_status = self.loader.query("""
                 SELECT 
                     item_id,
-                    AVG(COALESCE(confidence_weight, 1.0)) as avg_confidence,
+                    AVG(COALESCE(confidence_score, confidence_weight, 1.0)) as avg_confidence,
                     SUM(CASE 
                         WHEN CAST(allocation_flag AS VARCHAR) IN ('true', '1', 'allocated', 'True', 'TRUE') THEN 1 
                         ELSE 0 
@@ -114,7 +116,7 @@ class SegmentationEngine:
             constrained_status = pl.DataFrame()
         
         # Get E&O risk from item_master + lifecycle
-        eo_status = self.loader.query(f"""
+        eo_status = self.loader.query("""
             SELECT 
                 im.item_id,
                 COALESCE(im.unit_cost, 0) as unit_cost,
@@ -122,7 +124,11 @@ class SegmentationEngine:
                     DATEDIFF('day', CURRENT_DATE, lc.eol_date),
                     DATEDIFF('day', CURRENT_DATE, lc.ltb_date),
                     365
-                ) as days_to_risk
+                ) as days_to_risk,
+                lc.transition_start_date,
+                lc.transition_end_date,
+                lc.generation,
+                lc.compatibility_group
             FROM item_master im
             LEFT JOIN lifecycle lc ON im.item_id = lc.item_id
         """)
@@ -258,7 +264,12 @@ class SegmentationEngine:
         # Compute overlay tags
         items = items.with_columns([
             # transition_active: within transition window
-            (pl.col("days_to_risk") <= t.high_eo_days_to_risk).alias("transition_active"),
+            (
+                (pl.col("transition_start_date").is_not_null()) &
+                (pl.col("transition_end_date").is_not_null()) &
+                (pl.col("transition_start_date") <= pl.lit(today)) &
+                (pl.col("transition_end_date") >= pl.lit(today))
+            ).alias("transition_active"),
             
             # shared_component: used in multiple kits/categories
             (pl.col("kit_count") > t.shared_usage_threshold).alias("shared_component"),
@@ -269,14 +280,102 @@ class SegmentationEngine:
                 (pl.col("days_to_risk") > t.long_lead_days_to_risk_min)
             ).alias("long_lead_foundation"),
             
-            # build_ahead_sensitivity: placeholder (would need historical stranding data)
+            # build_ahead_sensitivity: set below via stranding ratios + overrides
             pl.lit(False).alias("build_ahead_sensitivity"),
             
-            # break_glass_exception: always false initially (manual override)
+            # break_glass_exception: set below via manual overrides
             pl.lit(False).alias("break_glass_exception"),
         ])
+
+        item_master = self.loader.get_table("item_master")
+        if item_master is not None and "shared_flag" in item_master.columns:
+            shared_flags = item_master.select([
+                "item_id",
+                pl.col("shared_flag").cast(pl.Boolean, strict=False).alias("shared_flag"),
+            ])
+            items = items.join(shared_flags, on="item_id", how="left").with_columns([
+                pl.col("shared_flag").fill_null(False)
+            ]).with_columns([
+                (pl.col("shared_component") | pl.col("shared_flag")).alias("shared_component")
+            ]).drop("shared_flag")
+
+        build_ahead = self._get_build_ahead_sensitivity()
+        if len(build_ahead) > 0:
+            items = items.join(build_ahead, on="item_id", how="left")
+            items = items.with_columns([
+                pl.coalesce(["build_ahead_sensitivity_right", "build_ahead_sensitivity"])
+                .alias("build_ahead_sensitivity")
+            ]).drop("build_ahead_sensitivity_right")
+
+        break_glass = self._get_break_glass_exceptions()
+        if len(break_glass) > 0:
+            items = items.join(break_glass, on="item_id", how="left")
+            items = items.with_columns([
+                pl.coalesce(["break_glass_exception_right", "break_glass_exception"])
+                .alias("break_glass_exception")
+            ]).drop("break_glass_exception_right")
         
         return items
+
+    def _get_build_ahead_sensitivity(self) -> pl.DataFrame:
+        """
+        Calculate build-ahead sensitivity using stranded vs required ratio.
+        """
+        t = self.thresholds
+        kit_engine = KitEngine(self.loader)
+        stranded_engine = StrandedEngine(self.loader)
+
+        required = kit_engine.get_aggregated_requirements()
+        stranded = stranded_engine.get_stranded_summary()
+        item_master = self.loader.get_table("item_master")
+
+        if len(required) == 0:
+            return pl.DataFrame()
+
+        required_totals = required.group_by("item_id").agg(
+            pl.col("total_required").sum().alias("total_required")
+        )
+        stranded_totals = stranded.group_by("item_id").agg(
+            pl.col("stranded_units").sum().alias("stranded_units")
+        )
+
+        combined = required_totals.join(stranded_totals, on="item_id", how="left").with_columns([
+            pl.col("stranded_units").fill_null(0),
+        ])
+
+        combined = combined.with_columns([
+            (
+                (pl.col("total_required") > 0) &
+                (pl.col("stranded_units") / pl.col("total_required") > t.build_ahead_stranding_pct)
+            ).alias("build_ahead_sensitivity")
+        ])
+
+        if item_master is not None and "build_ahead_flag" in item_master.columns:
+            overrides = item_master.select([
+                "item_id",
+                pl.col("build_ahead_flag").cast(pl.Boolean, strict=False).alias("build_ahead_flag"),
+            ])
+            combined = combined.join(overrides, on="item_id", how="left").with_columns([
+                pl.col("build_ahead_flag").fill_null(False)
+            ]).with_columns([
+                (pl.col("build_ahead_sensitivity") | pl.col("build_ahead_flag"))
+                .alias("build_ahead_sensitivity")
+            ])
+
+        return combined.select(["item_id", "build_ahead_sensitivity"])
+
+    def _get_break_glass_exceptions(self) -> pl.DataFrame:
+        """
+        Read break-glass overrides from item_master if present.
+        """
+        item_master = self.loader.get_table("item_master")
+        if item_master is None or "break_glass_exception" not in item_master.columns:
+            return pl.DataFrame()
+
+        return item_master.select([
+            "item_id",
+            pl.col("break_glass_exception").cast(pl.Boolean, strict=False).alias("break_glass_exception")
+        ])
     
     def get_full_segmentation(self) -> pl.DataFrame:
         """

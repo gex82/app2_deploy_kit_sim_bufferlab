@@ -806,6 +806,7 @@ def convergence():
                         "it_rack_ready": it_rack_ready,
                         "callan_ready": callan_ready,
                         "mor_ready": mor_ready,
+                        "power_ready": row.get("power_ready", True),
                         "missing_domains": row.get("missing_domains", []),
                     })
                 

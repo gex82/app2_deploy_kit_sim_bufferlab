@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Kit Readiness{% endblock %}
+{% block title %}Square-Set Readiness{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h1 class="page-title">Kit Readiness</h1>
-        <p class="page-subtitle">Planned vs deployable vs buildable kits by site and week</p>
+        <h1 class="page-title">Square-Set Readiness</h1>
+        <p class="page-subtitle">Planned vs deployable vs buildable square sets by site and week</p>
     </div>
     <div>
         <span class="badge badge-purple">{{ scenario_id }}</span>
@@ -23,7 +23,7 @@
         </select>
     </div>
     <div class="filter-group">
-        <label class="filter-label">Kit</label>
+        <label class="filter-label">Square Set</label>
         <select name="kit_id" class="select-input">
             {% for kit in kits %}
             <option value="{{ kit }}" {% if kit == filters.kit_id %}selected{% endif %}>{{ kit }}</option>
@@ -58,8 +58,8 @@
 <div class="grid grid-2" style="margin-bottom: 2rem;">
     <div class="card">
         <div class="card-header">
-            <h3 class="card-title">Kit Readiness Trend</h3>
-            <span class="badge badge-info">Selected Kit</span>
+            <h3 class="card-title">Square-Set Readiness Trend</h3>
+            <span class="badge badge-info">Selected Square Set</span>
         </div>
         <div class="chart-container">
             <canvas id="readinessChart"></canvas>

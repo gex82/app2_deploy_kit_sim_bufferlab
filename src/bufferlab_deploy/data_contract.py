@@ -43,13 +43,20 @@ class ContractResult:
 
 # Required columns for each table
 REQUIRED_COLUMNS = {
-    "deployment_plan": ["week", "site_id", "kit_id", "kits_planned"],
+    "deployment_plan": ["week", "site_id", "kit_id", "kits_planned", "demand_tier"],
     "demand_plan": ["week", "site_id", "kit_id", "kits_planned"],
     "bom_kit": ["kit_id", "child_item_id", "qty_per", "effective_start_week"],
     "inventory_position": ["as_of_date", "item_id", "node_id", "on_hand", "usable_on_hand"],
     "supply": ["item_id", "node_id", "qty", "status"],
     "site_readiness": ["scenario_id", "site_id", "week"],
-    "item_master": ["item_id", "category", "subcategory"],
+    "item_master": [
+        "item_id",
+        "category",
+        "subcategory",
+        "value_density",
+        "shared_flag",
+        "build_ahead_flag",
+    ],
     "node_master": ["node_id", "site_id", "node_type"],
     "lane_master": ["from_node_id", "to_node_id", "transfer_lead_time_days"],
     # New table for square-set convergence
@@ -58,9 +65,8 @@ REQUIRED_COLUMNS = {
 
 # Optional columns (used if present)
 OPTIONAL_COLUMNS = {
-    # deployment_plan: demand_tier for tiered demand support
-    "deployment_plan": ["priority", "program_id", "demand_tier"],
-    "demand_plan": ["priority", "program_id", "demand_tier"],
+    "deployment_plan": ["priority", "program_id"],
+    "demand_plan": ["demand_tier"],
     "bom_kit": ["effective_end_week", "revision", "kit_criticality"],
     "inventory_position": ["reserved", "aging_days", "unit_cost"],
     "supply": ["allocation_flag", "confidence_weight"],
@@ -69,20 +75,22 @@ OPTIONAL_COLUMNS = {
     "item_master": ["uom", "unit_cost", "description", "value_density", "shared_flag", "build_ahead_flag"],
     "node_master": ["region"],
     "lane_master": ["transfer_capacity_units_per_week", "allowed_categories"],
-    # lifecycle: extended fields for GPU generation tracking
-    "lifecycle": ["generation", "compatibility_group", "transition_start_date", "transition_end_date"],
-    # substitution_map: extended fields for substitution types
+    "lifecycle": [
+        "generation",
+        "compatibility_group",
+        "transition_start_date",
+        "transition_end_date",
+    ],
     "substitution_map": ["substitution_type", "approval_required"],
-    # square_set_master is in REQUIRED_COLUMNS but can have optional extensions
-    "square_set_master": ["description", "active"],
+    "square_set_master": [
+        "square_set_id",
+        "site_id",
+        "it_rack_kit_id",
+        "callan_kit_id",
+        "mor_kit_id",
+        "power_mw_required",
+    ],
 }
-
-# Valid demand tier values
-VALID_DEMAND_TIERS = ["committed", "likely", "exploratory"]
-
-# Valid substitution types
-VALID_SUBSTITUTION_TYPES = ["minor_gen", "major_gen", "equivalent"]
-
 
 
 class DataContractValidator:
@@ -203,6 +211,24 @@ class DataContractValidator:
                         passed=True,
                         message="Supply date column present",
                         severity="info",
+                    ))
+
+        # Check optional columns (warn if missing)
+        for table_name, optional_cols in OPTIONAL_COLUMNS.items():
+            if not self.loader.loaded_tables.get(table_name):
+                continue
+
+            stats = self.loader.table_stats.get(table_name, {})
+            actual_cols = set(stats.get("columns", []))
+
+            for col in optional_cols:
+                if col not in actual_cols:
+                    self._add_check(ContractCheck(
+                        name=f"Optional column: {table_name}.{col}",
+                        passed=False,
+                        message=f"Optional column '{col}' missing from table '{table_name}'",
+                        severity="warning",
+                        fix_recommendation=f"Consider adding '{col}' to {table_name} for full feature support",
                     ))
     
     def _check_referential_integrity(self) -> None:

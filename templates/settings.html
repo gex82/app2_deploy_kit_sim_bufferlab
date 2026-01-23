@@ -128,7 +128,7 @@
                     <div class="input-with-unit">
                         <input type="number" id="shared_usage_threshold" name="shared_usage_threshold" 
                                value="{{ thresholds.shared_usage_threshold }}" step="1" min="1">
-                        <span class="unit-suffix">kits</span>
+                        <span class="unit-suffix">square sets</span>
                     </div>
                 </div>
             </div>
@@ -220,6 +220,24 @@
         </button>
     </div>
 </form>
+
+<section class="settings-section">
+    <div class="section-header">
+        <div class="section-icon" style="background: var(--accent-green);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <path d="M12 1l3 4 5 .7-3.6 3.5.9 5.2-4.3-2.3-4.3 2.3.9-5.2L4 5.7 9 5z"></path>
+            </svg>
+        </div>
+        <h2>Data Privacy Statement</h2>
+    </div>
+    <p class="help-text" style="font-size: 0.9rem;">
+        BufferLab Deploy processes operational supply chain data only. The app stores data locally in DuckDB
+        and does not transmit information externally. No PII is expected in the App 1 gold outputs; if PII
+        exists, remove it before export. Retention is controlled by local file cleanup policies applied to
+        <code>data/gold</code> and <code>data/runs</code>.
+    </p>
+</section>
 
 <style>
 .settings-section {

@@ -236,6 +236,9 @@ class SquareSetEngine:
                 SELECT * FROM square_set_master_df
             """)
         
+        plan_columns = set(self.loader.table_stats.get("deployment_plan", {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
+
         # Get deployable quantities from deployment plan + readiness
         try:
             result = self.loader.query(f"""
@@ -249,7 +252,7 @@ class SquareSetEngine:
                         dp.kit_id,
                         dp.kits_planned,
                         COALESCE(dp.priority, 50) as priority,
-                        'committed' as demand_tier,
+                        {demand_tier_expr} as demand_tier,
                         LEAST(
                             dp.kits_planned,
                             COALESCE(sr.readiness_capacity_kits, dp.kits_planned)
@@ -274,6 +277,7 @@ class SquareSetEngine:
                     FROM deployment d
                     JOIN square_sets ss ON d.site_id = ss.site_id AND d.kit_id = ss.it_rack_kit_id
                     JOIN bom_kit b ON d.kit_id = b.kit_id
+                    WHERE COALESCE(b.kit_criticality, 'blocking') = 'blocking'
                     GROUP BY d.week, d.site_id, ss.square_set_id, b.child_item_id, d.priority, d.demand_tier
                 ),
                 -- Callan domain requirements
@@ -291,6 +295,7 @@ class SquareSetEngine:
                     JOIN square_sets ss ON d.site_id = ss.site_id AND d.kit_id = ss.callan_kit_id
                     JOIN bom_kit b ON d.kit_id = b.kit_id
                     WHERE ss.callan_kit_id IS NOT NULL
+                        AND COALESCE(b.kit_criticality, 'blocking') = 'blocking'
                     GROUP BY d.week, d.site_id, ss.square_set_id, b.child_item_id, d.priority, d.demand_tier
                 ),
                 -- MOR/Network domain requirements
@@ -308,6 +313,7 @@ class SquareSetEngine:
                     JOIN square_sets ss ON d.site_id = ss.site_id AND d.kit_id = ss.mor_kit_id
                     JOIN bom_kit b ON d.kit_id = b.kit_id
                     WHERE ss.mor_kit_id IS NOT NULL
+                        AND COALESCE(b.kit_criticality, 'blocking') = 'blocking'
                     GROUP BY d.week, d.site_id, ss.square_set_id, b.child_item_id, d.priority, d.demand_tier
                 )
                 SELECT * FROM it_rack_reqs
@@ -395,7 +401,45 @@ class SquareSetEngine:
             ])
             .sort(["week", "site_id", "square_set_id"])
         )
-        
+
+        # Power readiness (optional)
+        if self.loader.loaded_tables.get("site_readiness"):
+            sr_cols = set(self.loader.table_stats.get("site_readiness", {}).get("columns", []))
+            if "power_ready_mw" in sr_cols:
+                square_sets = self.get_or_create_square_set_master()
+                if len(square_sets) > 0:
+                    power_req = square_sets.select([
+                        "square_set_id",
+                        pl.col("power_mw_required").fill_null(0).alias("power_mw_required"),
+                    ])
+                    power_ready = self.loader.query("""
+                        SELECT site_id, week, power_ready_mw
+                        FROM site_readiness
+                        WHERE power_ready_mw IS NOT NULL
+                    """)
+
+                    summary = summary.join(power_req, on="square_set_id", how="left").join(
+                        power_ready,
+                        on=["site_id", "week"],
+                        how="left"
+                    ).with_columns([
+                        pl.col("power_mw_required").fill_null(0),
+                    ]).with_columns([
+                        pl.when(pl.col("power_ready_mw").is_null())
+                        .then(pl.lit(True))
+                        .otherwise(pl.col("power_ready_mw") >= pl.col("power_mw_required"))
+                        .alias("power_ready")
+                    ])
+
+                    summary = summary.with_columns([
+                        (pl.col("all_domains_ready") & pl.col("power_ready")).alias("all_domains_ready"),
+                        pl.when(~pl.col("power_ready"))
+                        .then(pl.col("missing_domains").list.concat(pl.lit(["power"])))
+                        .otherwise(pl.col("missing_domains"))
+                        .alias("missing_domains"),
+                        pl.lit(4).alias("total_domains"),
+                    ])
+
         return summary
     
     def get_weekly_convergence_stats(self, scenario_id: str | None = None) -> pl.DataFrame:

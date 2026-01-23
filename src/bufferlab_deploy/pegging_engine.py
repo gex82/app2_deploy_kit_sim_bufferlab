@@ -67,10 +67,28 @@ class PeggingEngine:
             .unique(["week", "site_id", "item_id"])
         )
         
-        # Run greedy allocation
-        results = self._greedy_allocate(kit_reqs, availability)
-        
-        return results
+        if "demand_tier" not in kit_reqs.columns:
+            kit_reqs = kit_reqs.with_columns([pl.lit("committed").alias("demand_tier")])
+
+        # Run greedy allocation by demand tier priority
+        results = []
+        remaining_inv: dict[tuple[str, str, str], float] | None = None
+        for tier in ["committed", "likely", "exploratory"]:
+            tier_reqs = kit_reqs.filter(pl.col("demand_tier") == tier)
+            if len(tier_reqs) == 0:
+                continue
+
+            tier_results, remaining_inv = self._greedy_allocate(
+                tier_reqs,
+                availability,
+                remaining_inv=remaining_inv,
+            )
+            results.append(tier_results)
+
+        if not results:
+            return pl.DataFrame()
+
+        return pl.concat(results)
     
     def run_tiered_pegging(
         self, 
@@ -304,8 +322,9 @@ class PeggingEngine:
     def _greedy_allocate(
         self,
         kit_reqs: pl.DataFrame,
-        availability: pl.DataFrame
-    ) -> pl.DataFrame:
+        availability: pl.DataFrame,
+        remaining_inv: dict[tuple[str, str, str], float] | None = None,
+    ) -> tuple[pl.DataFrame, dict[tuple[str, str, str], float]]:
         """
         Greedy allocation by priority.
         
@@ -316,16 +335,17 @@ class PeggingEngine:
         avail_df = availability.to_pandas()
         
         # Create availability lookup
-        avail_lookup = {}
-        for _, row in avail_df.iterrows():
-            key = (str(row['week']), row['site_id'], row['item_id'])
-            avail_lookup[key] = row['available']
-        
-        # Track remaining inventory
-        remaining_inv = avail_lookup.copy()
+        if remaining_inv is None:
+            avail_lookup: dict[tuple[str, str, str], float] = {}
+            for _, row in avail_df.iterrows():
+                key = (str(row['week']), row['site_id'], row['item_id'])
+                avail_lookup[key] = row['available']
+            remaining_inv = avail_lookup.copy()
         
         # Group by week/site/kit and aggregate requirements
-        kit_groups = kit_df.groupby(['week', 'site_id', 'kit_id', 'priority', 'deployable_kits']).agg({
+        kit_groups = kit_df.groupby([
+            'week', 'site_id', 'kit_id', 'priority', 'deployable_kits', 'demand_tier'
+        ]).agg({
             'item_id': list,
             'required_qty': list,
             'qty_per': list,
@@ -343,6 +363,7 @@ class PeggingEngine:
             kit_id = kit['kit_id']
             priority = kit['priority']
             deployable = kit['deployable_kits']
+            demand_tier = kit['demand_tier']
             items = kit['item_id']
             required_qtys = kit['required_qty']
             qtys_per = kit['qty_per']
@@ -388,14 +409,15 @@ class PeggingEngine:
                 'site_id': site_id,
                 'kit_id': kit_id,
                 'priority': priority,
+                'demand_tier': demand_tier,
                 'deployable_kits': int(deployable),
                 'buildable_kits': buildable_kits,
                 'blocked_kits': blocked_kits,
                 'num_blocking_items': len(blocking_items),
                 'blocking_items': str(blocking_items[:3]) if blocking_items else '',
             })
-        
-        return pl.DataFrame(results)
+
+        return pl.DataFrame(results), remaining_inv
     
     def get_buildability_summary(self, scenario_id: str | None = None) -> pl.DataFrame:
         """

@@ -142,19 +142,24 @@ class ScenarioEngine:
         if demand is None or len(demand) == 0:
             return {"committed": pl.DataFrame(), "likely": pl.DataFrame(), "exploratory": pl.DataFrame()}
         
-        # Add demand_tier if not present
-        if "demand_type" not in demand.columns:
-            demand = demand.with_columns([pl.lit("committed").alias("demand_type")])
-        
-        # Categorize demand types into tiers
-        demand = demand.with_columns([
-            pl.when(pl.col("demand_type").is_in(["committed", "firm", "booked"]))
-            .then(pl.lit("committed"))
-            .when(pl.col("demand_type").is_in(["likely", "probable", "forecast"]))
-            .then(pl.lit("likely"))
-            .otherwise(pl.lit("exploratory"))
-            .alias("tier")
-        ])
+        if "demand_tier" in demand.columns:
+            demand = demand.with_columns([
+                pl.col("demand_tier").cast(pl.Utf8, strict=False).alias("tier")
+            ])
+        else:
+            # Add demand_tier if not present
+            if "demand_type" not in demand.columns:
+                demand = demand.with_columns([pl.lit("committed").alias("demand_type")])
+
+            # Categorize demand types into tiers
+            demand = demand.with_columns([
+                pl.when(pl.col("demand_type").is_in(["committed", "firm", "booked"]))
+                .then(pl.lit("committed"))
+                .when(pl.col("demand_type").is_in(["likely", "probable", "forecast"]))
+                .then(pl.lit("likely"))
+                .otherwise(pl.lit("exploratory"))
+                .alias("tier")
+            ])
         
         # Get supply
         supply = self.loader.get_table("supply")
@@ -247,4 +252,3 @@ class ScenarioEngine:
         if demand_tier != "all" and "demand_tier" in df.columns:
             df = df.filter(pl.col("demand_tier") == demand_tier)
         return df
-
