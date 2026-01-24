@@ -1,6 +1,6 @@
 ## BufferLab Deploy Agent Notes
 
-Purpose: local-first analytics app for kit readiness, pegging, blockers, stranded inventory, and buffer targets.
+Purpose: local-first analytics app for square-set readiness, pegging, blockers, stranded inventory, and buffer targets.
 
 Quick start:
 - Install deps: `python -m pip install -r requirements.txt`
@@ -13,12 +13,12 @@ Data expectations:
 - If data contract fails, open Diagnostics page for remediation guidance.
 
 Core workflows:
-- Kit readiness: uses `KitEngine` and pegging outputs.
-- Pegging: greedy allocation by priority in `PeggingEngine`.
-- Ledger: `NettingLedger` enforces no double counting by week.
-- Blockers: `BlockerEngine` for root cause attribution.
-- Stranded: `StrandedEngine` for blocked-but-available inventory.
-- Buffers: `BufferEngine` generates v1 policy-based targets.
+- Square-set readiness: uses `SquareSetEngine` for requirements and convergence.
+- Pegging: greedy allocation by priority with convergence gating in `PeggingEngine`.
+- Ledger: `NettingLedger` enforces no double counting by week with square-set requirements.
+- Blockers: `BlockerEngine` for root cause attribution with domain context.
+- Stranded: `StrandedEngine` flags blocked and partial-domain readiness inventory.
+- Buffers: `BufferEngineV2` computes tier-aware policy targets.
 - Scenarios: `ScenarioEngine` compares scenario summaries.
 
 Key files:

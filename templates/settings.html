@@ -37,6 +37,15 @@
                                value="{{ thresholds.high_eo_unit_cost }}" step="100" min="0">
                     </div>
                 </div>
+
+                <div class="form-field">
+                    <label for="use_category_relative_cost">
+                        Category-Relative Cost Threshold
+                        <span class="help-text">Use category median instead of absolute unit cost</span>
+                    </label>
+                    <input type="checkbox" id="use_category_relative_cost" name="use_category_relative_cost" value="true"
+                           {% if thresholds.use_category_relative_cost %}checked{% endif %}>
+                </div>
                 
                 <div class="form-field">
                     <label for="high_eo_days_to_risk">
@@ -123,7 +132,7 @@
                 <div class="form-field">
                     <label for="shared_usage_threshold">
                         Shared Component Usage Threshold
-                        <span class="help-text">Usage count > this = shared</span>
+                        <span class="help-text">Usage count &gt;= this = shared</span>
                     </label>
                     <div class="input-with-unit">
                         <input type="number" id="shared_usage_threshold" name="shared_usage_threshold" 

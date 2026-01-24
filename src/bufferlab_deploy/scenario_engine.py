@@ -61,9 +61,9 @@ class ScenarioEngine:
         pegging = self._filter(pegging, site_id, week_start, week_end, demand_tier)
 
         totals = pegging.select([
-            pl.col("deployable_kits").sum().alias("total_deployable"),
-            pl.col("buildable_kits").sum().alias("total_buildable"),
-            pl.col("blocked_kits").sum().alias("total_blocked"),
+            pl.col("deployable_sets").sum().alias("total_deployable"),
+            pl.col("buildable_sets").sum().alias("total_buildable"),
+            pl.col("blocked_sets").sum().alias("total_blocked"),
         ]).to_dicts()[0]
 
         completion_rate = 0.0

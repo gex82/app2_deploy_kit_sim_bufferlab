@@ -52,18 +52,18 @@ Key settings:
 ## UI Pages
 - Overview: KPIs + completion and blocked trends
 - Square-Set Readiness: planned vs deployable vs buildable + week drilldown
-- Priority & Pegging: allocation by priority buckets and kit outcomes
+- Priority & Pegging: allocation by priority buckets and square-set outcomes
 - Long Poles: blocker Pareto, root causes, fix recommendations
 - Stranded Inventory: units and $ at risk, blocker context
 - Scenario Compare: side-by-side scenario deltas
-- Buffer Targets: v1 policy-based recommendations
+- Buffer Targets: v1 policy-based recommendations (v2 tier-aware engine used in exports)
 - Diagnostics: data contract checks and assumptions
 
 ## Notes on Logic
 - Netting ledger prevents double counting across weeks.
-- Pegging allocates scarce components by priority (1 = highest).
+- Pegging allocates scarce components by priority (1 = highest) with square-set convergence gating.
 - Transfer modeling shifts upstream inventory/supply by lead time.
-- Buffer targets are policy-based heuristic (v1), not an optimizer.
+- Buffer targets are policy-based heuristic (v1 in UI; v2 tier-aware for exports), not an optimizer.
 
 ## Data Privacy
 - BufferLab Deploy stores data locally in DuckDB and reads from `data/gold`.

@@ -19,6 +19,11 @@ import polars as pl
 
 from bufferlab_deploy.duckdb_loader import DuckDBLoader
 from bufferlab_deploy.config import get_config
+from bufferlab_deploy.sql_utils import (
+    get_plan_table,
+    get_bom_effective_clause,
+    get_readiness_capacity_expr,
+)
 
 
 # Domain categories mapping
@@ -214,10 +219,11 @@ class SquareSetEngine:
             scenario_id = self.config.analysis.default_scenario
         
         # Check for required tables
-        has_deployment = self.loader.loaded_tables.get("deployment_plan")
+        plan_table = get_plan_table(self.loader)
+        has_plan = self.loader.loaded_tables.get(plan_table)
         has_bom = self.loader.loaded_tables.get("bom_kit")
         
-        if not has_deployment or not has_bom:
+        if not has_plan or not has_bom:
             return pl.DataFrame()
         
         square_sets = self.get_or_create_square_set_master()
@@ -236,8 +242,15 @@ class SquareSetEngine:
                 SELECT * FROM square_set_master_df
             """)
         
-        plan_columns = set(self.loader.table_stats.get("deployment_plan", {}).get("columns", []))
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
         demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
+        default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
+        readiness_expr = get_readiness_capacity_expr(self.loader, default_mw_per_kit)
+        readiness_expr = (
+            readiness_expr
+            .replace("readiness_capacity_kits", "sr.readiness_capacity_kits")
+            .replace("power_ready_mw", "sr.power_ready_mw")
+        )
 
         # Get deployable quantities from deployment plan + readiness
         try:
@@ -255,9 +268,9 @@ class SquareSetEngine:
                         {demand_tier_expr} as demand_tier,
                         LEAST(
                             dp.kits_planned,
-                            COALESCE(sr.readiness_capacity_kits, dp.kits_planned)
+                            COALESCE({readiness_expr}, dp.kits_planned)
                         ) as deployable
-                    FROM deployment_plan dp
+                    FROM {plan_table} dp
                     LEFT JOIN site_readiness sr 
                         ON dp.site_id = sr.site_id 
                         AND dp.week = sr.week 
@@ -327,6 +340,208 @@ class SquareSetEngine:
             print(f"Error in explode_square_sets: {e}")
             return pl.DataFrame()
         
+        return result
+
+    def get_square_set_requirements_detail(
+        self,
+        scenario_id: str | None = None,
+        demand_tier: str | None = None,
+    ) -> pl.DataFrame:
+        """
+        Get detailed square-set requirements for pegging.
+        
+        Returns:
+            DataFrame with [week, site_id, square_set_id, domain, kit_id, demand_tier,
+                           square_sets_planned, deployable_sets, priority, program_id,
+                           item_id, qty_per, required_qty, kit_criticality, category, subcategory]
+        """
+        if scenario_id is None:
+            scenario_id = self.config.analysis.default_scenario
+
+        plan_table = get_plan_table(self.loader)
+        if not self.loader.loaded_tables.get(plan_table):
+            return pl.DataFrame()
+        if not self.loader.loaded_tables.get("bom_kit"):
+            return pl.DataFrame()
+
+        square_sets = self.get_or_create_square_set_master()
+        if len(square_sets) == 0:
+            return pl.DataFrame()
+
+        # Ensure square_set_master is registered in DuckDB
+        try:
+            self.loader.conn.execute("SELECT 1 FROM square_set_master LIMIT 1")
+        except:
+            self.loader.conn.register("square_set_master_df", square_sets.to_arrow())
+            self.loader.conn.execute("""
+                CREATE OR REPLACE TABLE square_set_master AS 
+                SELECT * FROM square_set_master_df
+            """)
+
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
+        priority_expr = "dp.priority" if "priority" in plan_columns else str(self.config.analysis.pegging.default_priority)
+        program_expr = "dp.program_id" if "program_id" in plan_columns else "NULL"
+        bom_clause = get_bom_effective_clause(self.loader, "ssp.week", alias="b")
+        default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
+        readiness_expr = get_readiness_capacity_expr(self.loader, default_mw_per_kit)
+
+        tier_filter = ""
+        if demand_tier:
+            tier_filter = f"AND ssp.demand_tier = '{demand_tier}'"
+
+        try:
+            result = self.loader.query(f"""
+                WITH readiness AS (
+                    SELECT 
+                        site_id,
+                        week,
+                        {readiness_expr} as readiness_capacity_kits
+                    FROM site_readiness
+                    WHERE scenario_id = '{scenario_id}'
+                ),
+                deployment AS (
+                    SELECT 
+                        dp.week,
+                        dp.site_id,
+                        dp.kit_id,
+                        dp.kits_planned,
+                        {demand_tier_expr} as demand_tier,
+                        COALESCE({priority_expr}, {self.config.analysis.pegging.default_priority}) as priority,
+                        {program_expr} as program_id,
+                        LEAST(
+                            dp.kits_planned,
+                            COALESCE(r.readiness_capacity_kits, dp.kits_planned)
+                        ) as deployable_kits
+                    FROM {plan_table} dp
+                    LEFT JOIN readiness r 
+                        ON dp.site_id = r.site_id 
+                        AND dp.week = r.week
+                ),
+                domain_map AS (
+                    SELECT square_set_id, site_id, 'it_rack' as domain, it_rack_kit_id as kit_id FROM square_set_master
+                    UNION ALL
+                    SELECT square_set_id, site_id, 'callan' as domain, callan_kit_id as kit_id FROM square_set_master
+                    UNION ALL
+                    SELECT square_set_id, site_id, 'mor' as domain, mor_kit_id as kit_id FROM square_set_master
+                ),
+                domain_deployment AS (
+                    SELECT 
+                        d.week,
+                        d.site_id,
+                        dm.square_set_id,
+                        dm.domain,
+                        dm.kit_id,
+                        d.kits_planned,
+                        d.deployable_kits,
+                        d.priority,
+                        d.demand_tier,
+                        d.program_id,
+                        CASE
+                            WHEN LOWER(d.demand_tier) IN ('committed', 'firm', 'booked') THEN 1
+                            WHEN LOWER(d.demand_tier) IN ('likely', 'probable', 'forecast') THEN 2
+                            ELSE 3
+                        END as demand_tier_rank
+                    FROM deployment d
+                    JOIN domain_map dm 
+                        ON d.site_id = dm.site_id 
+                        AND d.kit_id = dm.kit_id
+                ),
+                square_set_plan AS (
+                    SELECT 
+                        week,
+                        site_id,
+                        square_set_id,
+                        MIN(kits_planned) as square_sets_planned,
+                        MIN(deployable_kits) as deployable_sets,
+                        MIN(priority) as priority,
+                        MIN(demand_tier_rank) as demand_tier_rank,
+                        MIN(program_id) as program_id
+                    FROM domain_deployment
+                    WHERE kit_id IS NOT NULL
+                    GROUP BY week, site_id, square_set_id
+                ),
+                square_set_plan_tier AS (
+                    SELECT 
+                        ssp.*,
+                        CASE ssp.demand_tier_rank
+                            WHEN 1 THEN 'committed'
+                            WHEN 2 THEN 'likely'
+                            ELSE 'exploratory'
+                        END as demand_tier
+                    FROM square_set_plan ssp
+                )
+                SELECT 
+                    ssp.week,
+                    ssp.site_id,
+                    ssp.square_set_id,
+                    dm.domain,
+                    dm.kit_id,
+                    ssp.demand_tier,
+                    ssp.square_sets_planned,
+                    ssp.deployable_sets,
+                    ssp.priority,
+                    ssp.program_id,
+                    b.child_item_id as item_id,
+                    b.qty_per,
+                    CAST(ssp.deployable_sets * b.qty_per AS DOUBLE) as required_qty,
+                    COALESCE(b.kit_criticality, 'blocking') as kit_criticality,
+                    im.category,
+                    im.subcategory
+                FROM square_set_plan_tier ssp
+                JOIN domain_map dm 
+                    ON ssp.square_set_id = dm.square_set_id 
+                    AND ssp.site_id = dm.site_id
+                JOIN bom_kit b 
+                    ON dm.kit_id = b.kit_id
+                    AND {bom_clause}
+                LEFT JOIN item_master im ON b.child_item_id = im.item_id
+                WHERE dm.kit_id IS NOT NULL
+                {tier_filter}
+                ORDER BY ssp.week, ssp.site_id, ssp.priority, ssp.square_set_id, dm.domain, b.child_item_id
+            """)
+        except Exception as e:
+            print(f"Error getting square-set requirements detail: {e}")
+            return pl.DataFrame()
+
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
+        return result
+
+    def get_aggregated_requirements(
+        self,
+        scenario_id: str | None = None,
+        demand_tier: str | None = None,
+    ) -> pl.DataFrame:
+        """
+        Get total item requirements aggregated by site/week/item.
+        
+        Returns:
+            DataFrame with [week, site_id, item_id, demand_tier, total_required]
+        """
+        if scenario_id is None:
+            scenario_id = self.config.analysis.default_scenario
+
+        requirements = self.get_square_set_requirements_detail(
+            scenario_id=scenario_id,
+            demand_tier=demand_tier,
+        )
+        if len(requirements) == 0:
+            return pl.DataFrame()
+
+        result = (
+            requirements
+            .group_by(["week", "site_id", "item_id", "demand_tier"])
+            .agg([
+                pl.col("required_qty").sum().alias("total_required"),
+                pl.col("square_set_id").n_unique().alias("num_square_sets_requiring"),
+            ])
+            .sort(["week", "site_id", "total_required"], descending=[False, False, True])
+        )
+
         return result
     
     def get_domain_readiness(self, scenario_id: str | None = None) -> pl.DataFrame:

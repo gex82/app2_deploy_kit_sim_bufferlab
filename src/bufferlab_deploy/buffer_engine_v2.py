@@ -346,24 +346,23 @@ class BufferEngineV2:
                     .alias("tier")
                 ]).filter(pl.col("tier") == demand_tier)
 
-            if len(demand) > 0:
-                return (
-                    demand
-                    .group_by("item_id")
-                    .agg([
+        if len(demand) > 0:
+            return (
+                demand
+                .group_by("item_id")
+                .agg([
                         pl.col("qty").mean().alias("avg_weekly_demand")
                     ])
                 )
 
         # Fallback to deployment-plan driven requirements
-        from bufferlab_deploy.kit_engine import KitEngine
+        from bufferlab_deploy.square_set_engine import SquareSetEngine
 
-        requirements = KitEngine(self.loader).get_aggregated_requirements()
+        requirements = SquareSetEngine(self.loader).get_aggregated_requirements(
+            demand_tier=demand_tier
+        )
         if len(requirements) == 0:
             return pl.DataFrame({"item_id": [], "avg_weekly_demand": []})
-
-        if "demand_tier" in requirements.columns:
-            requirements = requirements.filter(pl.col("demand_tier") == demand_tier)
 
         return (
             requirements
@@ -372,6 +371,20 @@ class BufferEngineV2:
                 pl.col("total_required").mean().alias("avg_weekly_demand")
             ])
         )
+
+    def get_tiered_buffer_targets(self) -> pl.DataFrame:
+        """
+        Get buffer targets for all demand tiers.
+        """
+        tiers = ["committed", "likely", "exploratory"]
+        buffers = []
+        for tier in tiers:
+            tier_buffers = self.calculate_item_buffers(tier)
+            if len(tier_buffers) > 0:
+                buffers.append(tier_buffers)
+        if not buffers:
+            return pl.DataFrame()
+        return pl.concat(buffers)
 
     def _get_inventory_days(self) -> pl.DataFrame:
         """Get inventory days (aging) by item if available."""

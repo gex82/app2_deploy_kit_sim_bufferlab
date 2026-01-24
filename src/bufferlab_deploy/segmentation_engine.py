@@ -15,7 +15,7 @@ import polars as pl
 
 from bufferlab_deploy.duckdb_loader import DuckDBLoader
 from bufferlab_deploy.config import get_config
-from bufferlab_deploy.kit_engine import KitEngine
+from bufferlab_deploy.square_set_engine import SquareSetEngine
 from bufferlab_deploy.stranded_engine import StrandedEngine
 
 
@@ -34,7 +34,8 @@ class SegmentationThresholds:
     long_lead_threshold: int = 60
     long_lead_days_to_risk_min: int = 180
     build_ahead_stranding_pct: float = 0.30
-    shared_usage_threshold: int = 1
+    shared_usage_threshold: int = 2
+    use_category_relative_cost: bool = False
     
     # Buffer policy by tier
     committed_max_coverage_weeks: int = 6
@@ -146,6 +147,18 @@ class SegmentationEngine:
         
         # Combine dimensions
         items = eo_status
+
+        if t.use_category_relative_cost:
+            category_costs = self._get_category_cost_percentile()
+            if len(category_costs) > 0:
+                items = items.join(category_costs, on="item_id", how="left")
+                items = items.with_columns([
+                    pl.col("category_cost_percentile").fill_null(0.0)
+                ])
+            else:
+                items = items.with_columns([pl.lit(0.0).alias("category_cost_percentile")])
+        else:
+            items = items.with_columns([pl.lit(0.0).alias("category_cost_percentile")])
         
         # Join blocker status
         if len(blocker_status) > 0:
@@ -183,9 +196,13 @@ class SegmentationEngine:
                 (pl.col("lead_time_p95") > t.constrained_lead_time)
             ).alias("is_constrained"),
             
-            # is_high_eo: high cost AND short days to risk
+            # is_high_eo: high cost (absolute or category-relative) AND short days to risk
             (
-                (pl.col("unit_cost") > t.high_eo_unit_cost) &
+                (
+                    pl.when(pl.lit(t.use_category_relative_cost))
+                    .then(pl.col("category_cost_percentile") >= 0.5)
+                    .otherwise(pl.col("unit_cost") > t.high_eo_unit_cost)
+                ) &
                 (pl.col("days_to_risk") < t.high_eo_days_to_risk)
             ).alias("is_high_eo"),
         ])
@@ -272,7 +289,7 @@ class SegmentationEngine:
             ).alias("transition_active"),
             
             # shared_component: used in multiple kits/categories
-            (pl.col("kit_count") > t.shared_usage_threshold).alias("shared_component"),
+            (pl.col("kit_count") >= t.shared_usage_threshold).alias("shared_component"),
             
             # long_lead_foundation: long lead time but low obsolescence risk
             (
@@ -317,16 +334,62 @@ class SegmentationEngine:
         
         return items
 
+    def _get_category_cost_percentile(self) -> pl.DataFrame:
+        """
+        Compute category-relative unit cost percentile per item.
+        """
+        item_master = self.loader.get_table("item_master")
+        if item_master is None:
+            return pl.DataFrame()
+        if "category" not in item_master.columns or "unit_cost" not in item_master.columns:
+            return pl.DataFrame()
+
+        return (
+            item_master
+            .select(["item_id", "category", "unit_cost"])
+            .with_columns([
+                pl.col("unit_cost").fill_null(0).cast(pl.Float64, strict=False)
+            ])
+            .with_columns([
+                pl.col("unit_cost").rank("dense").over("category").alias("cost_rank"),
+                pl.count().over("category").alias("category_count"),
+            ])
+            .with_columns([
+                (pl.col("cost_rank") / pl.col("category_count")).alias("category_cost_percentile")
+            ])
+            .select(["item_id", "category_cost_percentile"])
+        )
+
     def _get_build_ahead_sensitivity(self) -> pl.DataFrame:
         """
         Calculate build-ahead sensitivity using stranded vs required ratio.
         """
         t = self.thresholds
-        kit_engine = KitEngine(self.loader)
+        square_set_engine = SquareSetEngine(self.loader)
         stranded_engine = StrandedEngine(self.loader)
 
-        required = kit_engine.get_aggregated_requirements()
-        stranded = stranded_engine.get_stranded_summary()
+        required = square_set_engine.get_aggregated_requirements()
+        stranded = pl.DataFrame()
+        for table in ["stranded_inventory_history", "stranded_history", "stranded_inventory"]:
+            if not self.loader.loaded_tables.get(table):
+                continue
+            history = self.loader.get_table(table)
+            if history is None or len(history) == 0 or "item_id" not in history.columns:
+                continue
+            if "stranded_units" in history.columns:
+                units_col = "stranded_units"
+            elif "stranded_qty" in history.columns:
+                units_col = "stranded_qty"
+            elif "qty" in history.columns:
+                units_col = "qty"
+            else:
+                continue
+            stranded = history.group_by("item_id").agg(
+                pl.col(units_col).sum().alias("stranded_units")
+            )
+            break
+        if len(stranded) == 0:
+            stranded = stranded_engine.get_stranded_summary()
         item_master = self.loader.get_table("item_master")
 
         if len(required) == 0:

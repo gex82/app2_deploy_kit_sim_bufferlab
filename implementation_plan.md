@@ -1,324 +1,460 @@
-# App 2 Scope Expansion: Square Sets & Advanced Segmentation
+# App 2 Implementation Plan: Scope Alignment & Real Data Readiness
 
 ## Overview
 
-This plan extends App 2 from kit-centric planning to **square-set convergence** with **demand tiers** and **MECE segmentation**.
+This plan addresses the remaining gaps identified in the SOW review to make App 2 fully aligned with the square-set deployment planning scope and robust enough for **real client data**.
 
 ---
 
-## Gap Review (Omissions/Commissions)
+## Current State Summary
 
-### Potential Omissions Identified & Addressed
+### ✅ Already Implemented
+- Netting ledger with time-phased inventory (no double counting)
+- Tiered pegging (`run_tiered_pegging()`) - committed → likely → exploratory
+- MECE segmentation engine (B1-B4, N1-N4) with configurable thresholds
+- Buffer engine v2 with value-at-risk calculations
+- Square-set engine with convergence checks and power gating
+- Data contract validation for new fields (demand_tier, lifecycle, etc.)
+- Settings page with session-based threshold storage
+- Convergence dashboard, Engineering insights, Governance exports
+- Build-ahead exception log with API endpoints
+- README data privacy statement
+- Synthetic data generator and calibration script
 
-| Gap | Resolution |
-|-----|------------|
-| No Settings UI for thresholds | Added Phase I: Settings page with all segmentation inputs |
-| Missing `days_to_risk` computation | Will derive from lifecycle EOL/LTB dates or aging days |
-| No synthetic square-set data generator | Added to Phase A |
-| Build-ahead sensitivity computation unclear | Define as items with >30% historical stranding when one domain missing |
-| No domain-level visibility | Convergence dashboard shows per-domain readiness |
-
-### Potential Commissions (Avoided)
-- **Not replacing** all "kit" references - kits still exist as domain components within square-sets
-- Keeping substitution_map simple for v1 - only essential fields
-
----
-
-## Key Concept Changes
-
-| Current (Kit-Centric) | New (Square-Set Centric) |
-|-----------------------|--------------------------|
-| Kit = single BOM | Square Set = convergence of 3 domains (IT Rack, Callan/HXU, MOR/Network) |
-| Single demand plan | Tiered demand (committed, likely, exploratory) |
-| Simple category segmentation | B1-B4, N1-N4 segments + overlay tags |
-| Fixed buffer ranges | Value-at-risk adjusted buffers by segment + tier |
+### ❌ Remaining Gaps (This Plan)
+1. Core logic still uses `KitEngine` instead of `SquareSetEngine`
+2. Demand tiers not integrated into buffer sizing/requirements
+3. Segmentation thresholds need refinement (shared ≥2, category-relative cost)
+4. No engineering logic for GPU generation fungibility
+5. No preprocessing script for client flat files
+6. Settings not persisted to file (session-only)
+7. Limited error messaging for missing data
 
 ---
 
-## Implementation Phases
+## Phase 1: Core Logic Completion (High Impact)
 
-### Phase A: Data Contract Extensions
+### 1.1 Replace KitEngine with SquareSetEngine End-to-End
 
-#### A1. Extend `deployment_plan` schema
-Add `demand_tier` field (committed, likely, exploratory)
+**Goal:** Make square-set the atomic planning unit throughout the analytics.
 
-#### A2. Extend `item_master` schema
-- `value_density` (value per unit weight/volume)
-- `shared_flag` or compute `cross_program_count`
-- `build_ahead_flag`
+#### [MODIFY] [netting_ledger.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/netting_ledger.py)
 
-#### A3. Extend `lifecycle` table
-- `generation` (GPU generation identifier)
-- `compatibility_group` (fungibility rules)
-- `transition_start_date`, `transition_end_date`
-
-#### A4. Create `square_set_master` table
-```
-square_set_id | site_id | it_rack_kit_id | callan_kit_id | mor_kit_id | power_mw_required
+Replace:
+```python
+self.kit_engine = KitEngine(loader)
+requirements = self.kit_engine.get_aggregated_requirements(scenario_id)
 ```
 
-#### A5. Extend `substitution_map`
-- `substitution_type` (minor_gen, major_gen, equivalent)
-- `approval_required` (boolean)
+With:
+```python
+self.square_set_engine = SquareSetEngine(loader)
+requirements = self.square_set_engine.get_aggregated_requirements(scenario_id)
+```
+
+Changes needed:
+- Import `SquareSetEngine` instead of/in addition to `KitEngine`
+- Update `build_ledger()` to use square-set requirements
+- Ensure square-set domain components are properly exploded
+
+#### [MODIFY] [pegging_engine.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/pegging_engine.py)
+
+- Replace `KitEngine` with `SquareSetEngine` in constructor
+- Update `run_pegging()` to work with square-set requirements
+- Add domain-level convergence check before allowing allocation
+
+#### [MODIFY] [blocker_engine.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/blocker_engine.py)
+
+- Update blocker attribution to use square-set context
+- Show which domain(s) are blocking each square-set
+
+#### [MODIFY] [stranded_engine.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/stranded_engine.py)
+
+- Detect stranded inventory when domains don't converge
+- Flag partial-domain readiness as stranding risk
 
 ---
 
-### Phase B: Square-Set Engine
+### 1.2 Integrate Demand Tiers Throughout
 
-#### B1. Create `square_set_engine.py`
-- Replace kit explosion with square-set explosion
-- Aggregate requirements across 3 domains per deployment
-- Compute required components per square set
+**Goal:** Buffer sizing, requirements, and netting should all respect demand tier.
 
-#### B2. Update terminology
-Replace "kit" → "square set" or "buildable deployment" in:
-- Routes, templates, UI labels
-- API responses
+#### [MODIFY] [buffer_engine_v2.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/buffer_engine_v2.py)
 
-#### B3. Implement domain convergence check
-- For each site/week, check if all 3 domains have sufficient inventory
-- Flag partial readiness (e.g., "IT Rack ready, Callan missing")
+- Add `get_tiered_buffer_targets()` that returns different targets by tier
+- Committed: full buffer (up to max weeks)
+- Likely: capped at min weeks
+- Exploratory: zero buffer
 
----
+#### [MODIFY] [square_set_engine.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/square_set_engine.py)
 
-### Phase C: Advanced Segmentation Engine
+- `get_aggregated_requirements()` should accept `demand_tier` parameter
+- Return requirements filtered/grouped by tier
 
-#### C1. Create `segmentation_engine.py`
-Assign each item to exactly one base segment:
+#### [MODIFY] [netting_ledger.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/netting_ledger.py)
 
-**Blockers (B segments):**
-| Segment | Criteria |
-|---------|----------|
-| B1 | Blocker + Constrained + High E&O |
-| B2 | Blocker + Constrained + Not High E&O |
-| B3 | Blocker + Not Constrained + High E&O |
-| B4 | Blocker + Not Constrained + Not High E&O |
-
-**Non-blockers (N segments):**
-| Segment | Criteria |
-|---------|----------|
-| N1 | Non-blocker + Constrained + High E&O |
-| N2 | Non-blocker + Constrained + Not High E&O |
-| N3 | Non-blocker + Not Constrained + High E&O |
-| N4 | Non-blocker + Not Constrained + Not High E&O |
-
-#### C2. Compute segment dimensions
-- `is_blocker`: from `kit_criticality` in BOM
-- `is_constrained`: allocation_flag OR confidence < 0.7 OR lead_time_p95 > threshold
-- `is_high_eo`: unit_cost > X AND days_to_risk < Y
-
-#### C3. Implement overlay tags
-| Tag | Logic |
-|-----|-------|
-| `transition_active` | Current date within [transition_start, transition_end] |
-| `shared_component` | Usage count > 1 across programs/categories |
-| `long_lead_foundation` | lead_time_p95 > 60 days AND days_to_risk > 180 |
-| `build_ahead_sensitivity` | Historical stranding from non-convergence |
-| `break_glass_exception` | Manual override flag |
+- Add `build_tiered_ledger()` that runs netting per tier in sequence
+- Committed consumes first, residual flows to likely, then exploratory
 
 ---
 
-### Phase D: Demand Tier Handling
+### 1.3 Fix Segmentation Thresholds
 
-#### D1. Extend `scenario_engine.py`
-- Support tiered demand scenarios
-- Separate netting ledger runs per tier
+#### [MODIFY] [segmentation_engine.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/segmentation_engine.py)
 
-#### D2. Buffer posture by tier
-| Tier | Buffer Posture |
-|------|----------------|
-| Committed | Allow full buffer (up to max coverage) |
-| Likely | Cap at min coverage |
-| Exploratory | Zero buffer (commitments/options only) |
+**Shared component threshold:**
+```python
+# Change from:
+shared_usage_threshold: int = 1
+# To:
+shared_usage_threshold: int = 2  # ≥2 means shared
+```
 
----
+**Category-relative cost thresholds:**
+- Add `use_category_relative_cost: bool = False`
+- When enabled, compare unit_cost to category median instead of absolute $5K
+- Implement `_get_category_cost_percentile()` method
 
-### Phase E: Buffer Target Engine v2
-
-#### E1. Create `buffer_engine_v2.py`
-- Segment-based buffer ranges (not config-only)
-- E&O penalty: `value_at_risk = unit_cost × inventory_days × days_to_risk_factor`
-- Shrink buffers for high E&O segments
-
-#### E2. Buffer range by segment + tag
-Example matrix (configurable):
-| Segment | Base Range | With `transition_active` | Location |
-|---------|------------|--------------------------|----------|
-| B1 | 2-3 weeks | 1-2 weeks (reduced) | Integration |
-| B2 | 3-4 weeks | 2-3 weeks | Integration |
-| B3 | 2-3 weeks | 1-2 weeks | Regional |
-| B4 | 4-6 weeks | 3-4 weeks | Regional |
-| N1-N4 | 1-2 weeks | 0-1 weeks | Site |
+**Build-ahead sensitivity:**
+- Replace `pl.lit(False)` placeholder with actual computation
+- Query historical stranding data if available
+- Default to False if no historical data
 
 ---
 
-### Phase F: Convergence Dashboard
+## Phase 2: Robustness for Real Data (Critical for Client Use)
 
-#### F1. Create `/convergence` route
-- Show planned vs deployable square sets by site/week
-- Highlight "missing domains" blocking readiness
+### 2.1 Create Preprocessing Script for Client Flat Files
 
-#### F2. Square-set convergence gate
-- Only allocate when all domains + power ready
-- Otherwise flag as potential stranding
+#### [NEW] [preprocess_client_data.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/preprocess_client_data.py)
 
-#### F3. Build-ahead exception log
-- Approver, justification, end date
-- Display in UI with expiry warnings
-
----
-
-### Phase G: Engineering Insights
-
-#### G1. Create `/engineering` route
-- GPU generation timeline
-- Transition windows (LTB/EOL)
-- Fungibility view (substitution paths)
-
-#### G2. Substitution recommendations
-- Show retrofit/re-kit options to reduce stranded inventory
-- Minor vs major generation changes
-
----
-
-### Phase H: Governance & Reporting
-
-#### H1. Weekly status report export
-- Excel with summary + details tabs
-- Aligned with SOW metrics
-
-#### H2. 4-week leadership update
-- Executive summary view
-- Key risk callouts
-
-#### H3. Data privacy section in README
-- Non-PII only
-- Local DuckDB processing
-- Retention policies
-
----
-
-## File Changes Summary
-
-### New Files
-| File | Purpose |
-|------|---------|
-| `square_set_engine.py` | Square-set explosion and convergence |
-| `segmentation_engine.py` | B1-B4, N1-N4 assignment + overlay tags |
-| `buffer_engine_v2.py` | Segment-aware buffer targets with E&O |
-| `routes/convergence.py` | Convergence dashboard |
-| `routes/engineering.py` | GPU generation and substitution view |
-| `templates/convergence.html` | Missing domain visualization |
-| `templates/engineering.html` | Transition and fungibility view |
-| `templates/segmentation.html` | Segment counts and filters |
-
-### Modified Files
-| File | Changes |
-|------|---------|
-| `data_contract.py` | Add demand_tier, value_density, generation checks |
-| `kit_engine.py` → `square_set_engine.py` | Replace kit with square set |
-| `pegging_engine.py` | Add convergence gate |
-| `netting_ledger.py` | Support tiered demand runs |
-| `scenario_engine.py` | Multi-tier scenario handling |
-| `app.py` | New routes, updated nav |
-| `base.html` | Updated nav labels |
-| All templates | "kit" → "square set" terminology |
-
----
-
-## Schema Extensions Required (App 1)
-
-> [!IMPORTANT]  
-> These changes need to be made in App 1's `canonical.py` and sample data generator before App 2 can use them.
+A standalone script/utility that:
 
 ```python
-# deployment_plan additions
-demand_tier: Literal["committed", "likely", "exploratory"] = "committed"
+class ClientDataPreprocessor:
+    """
+    Validates and converts client flat files to App 2 format.
+    
+    Features:
+    - Auto-detect CSV/Excel/Parquet input
+    - Column name mapping (configurable via YAML)
+    - Data type validation and conversion
+    - Missing field detection with recommendations
+    - Parquet output to data/gold/
+    - Detailed validation report
+    """
+    
+    def __init__(self, mapping_file: str = "column_mapping.yml"):
+        ...
+    
+    def process_file(self, input_path: str, table_name: str) -> ValidationResult:
+        ...
+    
+    def process_directory(self, input_dir: str) -> dict[str, ValidationResult]:
+        ...
+    
+    def generate_report(self) -> str:
+        ...
+```
 
-# item_master additions
-value_density: float | None = None
-shared_flag: bool = False
-build_ahead_flag: bool = False
+#### [NEW] [column_mapping.yml](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/configs/column_mapping.yml)
 
-# lifecycle additions
-generation: str | None = None
-compatibility_group: str | None = None
-transition_start_date: date | None = None
-transition_end_date: date | None = None
+```yaml
+# Maps client column names to App 2 expected names
+# NOTE: Uses square-set as atomic planning unit (not kit)
 
-# New table: square_set_master
-class SquareSetMaster(BaseModel):
-    square_set_id: str
-    site_id: str
-    it_rack_kit_id: str
-    callan_kit_id: str
-    mor_kit_id: str
-    power_mw_required: float
+deployment_plan:
+  aliases:
+    square_sets_planned: ["quantity", "qty", "planned_qty", "units", "kits_planned"]
+    square_set_id: ["deployment_id", "build_id", "kit_id"]
+    site_id: ["location", "site", "dc_id"]
+    week: ["plan_week", "target_week", "date"]
+    demand_tier: ["tier", "priority_tier", "demand_type"]
+  required: ["week", "site_id", "square_set_id", "square_sets_planned"]
+  optional: ["demand_tier", "priority"]
 
-# substitution_map extensions
-substitution_type: Literal["minor_gen", "major_gen", "equivalent"] = "equivalent"
-approval_required: bool = False
+square_set_master:
+  aliases:
+    square_set_id: ["deployment_id", "build_id"]
+    it_rack_kit_id: ["it_rack_id", "compute_kit_id"]
+    callan_kit_id: ["hxu_kit_id", "cooling_kit_id"]
+    mor_kit_id: ["network_kit_id", "fabric_kit_id"]
+  required: ["square_set_id", "site_id", "it_rack_kit_id", "callan_kit_id", "mor_kit_id"]
+
+item_master:
+  aliases:
+    item_id: ["part_number", "sku", "component_id"]
+    category: ["item_category", "type"]
+    unit_cost: ["cost", "price", "unit_price"]
+  ...
 ```
 
 ---
 
-### Phase I: Settings & Configuration Page
+### 2.2 Persistent Settings Storage
 
-#### I1. Create `/settings` route and page
-UI for all configurable thresholds (persisted to session/config):
+#### [MODIFY] [app.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/app.py)
 
-**Segmentation Thresholds:**
-| Setting | Description | Default |
-|---------|-------------|---------|
-| High E&O Unit Cost Threshold | Items above this cost considered high E&O risk | $5,000 |
-| High E&O Days-to-Risk Threshold | Items with < this days to EOL/LTB are high E&O | 90 days |
-| Constrained Lead Time Threshold | Items with lead_time_p95 > this are constrained | 45 days |
-| Constrained Confidence Threshold | Items with confidence < this are constrained | 0.70 |
-| Long Lead Foundation Threshold | lead_time_p95 > this = long lead | 60 days |
-| Long Lead Days-to-Risk Min | days_to_risk > this = foundation (low obsolescence) | 180 days |
-| Build-Ahead Stranding Threshold | Historical stranding % above this = sensitive | 30% |
-| Shared Component Usage Threshold | Usage count > this = shared | 1 |
+Add file-based settings persistence:
 
-**Buffer Policy Settings:**
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Committed Tier Max Coverage | Max buffer weeks for committed demand | 6 weeks |
-| Likely Tier Max Coverage | Max buffer weeks for likely demand | 2 weeks |
-| Exploratory Tier Coverage | Buffer for exploratory (commitments only) | 0 weeks |
-| Transition Active Buffer Reduction | % reduction when transition_active tag | 33% |
+```python
+# Local-only settings file (gitignored)
+SETTINGS_FILE = Path("configs/user_settings.yml")
 
-**Analysis Settings:**
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Default Scenario | Scenario to use if not selected | baseline |
-| Horizon Weeks | Number of weeks to project | 12 |
-| Week Start | Day of week for week start | Monday |
-| MW per Square-Set | If readiness in MW, conversion factor | 0.5 |
+def load_settings_from_file() -> dict:
+    """Load settings from YAML file if exists."""
+    if SETTINGS_FILE.exists():
+        return yaml.safe_load(SETTINGS_FILE.read_text())
+    return {}
 
-#### I2. Settings persistence
-- Store in Flask session for current run
-- Allow save/load to YAML config file
+def save_settings_to_file(settings: dict) -> None:
+    """Save settings to YAML file (local only, not committed)."""
+    SETTINGS_FILE.parent.mkdir(exist_ok=True)
+    SETTINGS_FILE.write_text(yaml.dump(settings))
+```
+
+Update `/api/settings` endpoint:
+- Accept `persist: bool` parameter
+- If True, save to file in addition to session
+
+> [!IMPORTANT]
+> Add `configs/user_settings.yml` to `.gitignore` - this file is local-only and should not be committed.
+
+---
+
+### 2.3 Improve Error Messaging
+
+#### [MODIFY] [duckdb_loader.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/duckdb_loader.py)
+
+Add user-friendly error collection:
+
+```python
+class LoaderErrors:
+    missing_tables: list[str]
+    missing_columns: dict[str, list[str]]
+    type_mismatches: list[str]
+    
+    def get_user_message(self) -> str:
+        """Generate actionable error message for UI."""
+```
+
+#### [MODIFY] Templates
+
+Add error banners when data is incomplete:
+```html
+{% if loader_errors %}
+<div class="error-banner">
+    <h3>Data Issues Detected</h3>
+    <ul>
+    {% for error in loader_errors %}
+        <li>{{ error }}</li>
+    {% endfor %}
+    </ul>
+    <a href="/diagnostics">View Details</a>
+</div>
+{% endif %}
+```
+
+---
+
+### 2.8 Scenario Templates (Definition)
+
+> **Moved from Phase 3** - Templates are needed early for client discussions.
+
+#### [MODIFY] [scenario_engine.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/scenario_engine.py)
+
+Add structured scenario variants with clear naming:
+
+```python
+SCENARIO_TEMPLATES = {
+    "baseline": {
+        "description": "Current plan assumptions",
+        "power_adjustment": 1.0,
+        "supply_adjustment": 1.0,
+        "demand_adjustment": 1.0,
+    },
+    "favorable": {
+        "description": "Eased constraints: more power/supply, same demand",
+        "power_adjustment": 1.2,   # 20% more power available
+        "supply_adjustment": 1.1,  # 10% more supply
+        "demand_adjustment": 1.0,  # demand unchanged
+    },
+    "stressed": {
+        "description": "Tighter constraints: less power/supply, increased demand",
+        "power_adjustment": 0.8,   # 20% less power
+        "supply_adjustment": 0.8,  # 20% supply cut
+        "demand_adjustment": 1.2,  # 20% more demand pressure
+    },
+}
+
+def run_scenario_variant(self, template: str, base_scenario: str) -> dict:
+    """Apply scenario template adjustments to base scenario."""
+```
+
+> [!NOTE]
+> "Favorable" = eased constraints (more capacity/supply, demand unchanged).  
+> "Stressed" = tighter constraints (less capacity/supply, higher demand pressure).
+
+---
+
+## Phase 3: Engineering & Governance
+
+### 3.1 Implement Fungibility Logic for GPU Generations
+
+#### [MODIFY] [segmentation_engine.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/segmentation_engine.py)
+
+Add generation-aware logic:
+
+```python
+def compute_fungibility_factor(self, item_id: str) -> dict:
+    """
+    Determine item fungibility based on GPU generation.
+    
+    Returns:
+        {
+            "generation": "H100",
+            "compatibility_group": "CG-H100",
+            "can_substitute_to": ["H200"],  # minor gen
+            "can_substitute_from": [],
+            "substitution_type": "minor_gen" | "major_gen" | None
+        }
+    """
+```
+
+#### [MODIFY] [buffer_engine_v2.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/buffer_engine_v2.py)
+
+Adjust buffer policy when item is fungible:
+- Fungible items can have slightly lower buffers
+- Items in transition get reduced buffers
+
+---
+
+### 3.2 Build-Ahead Sensitivity Implementation
+
+#### [MODIFY] [segmentation_engine.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/segmentation_engine.py)
+
+Replace placeholder with actual computation:
+
+```python
+def _compute_build_ahead_sensitivity(self, item_id: str) -> bool:
+    """
+    Determine if item has historical build-ahead stranding.
+    
+    Logic:
+    1. Look for historical cases where item was built ahead
+    2. Check if subsequent non-convergence caused stranding
+    3. If stranding rate > threshold (30%), mark as sensitive
+    
+    If no historical data available, return False.
+    """
+```
+
+---
+
+### 3.3 Scenario Template UI (Quick-Select Buttons)
+
+> **Note:** Scenario templates are defined in Phase 2.8 below. This phase adds the UI quick-select buttons.
+
+#### [MODIFY] [scenarios.html](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/templates/scenarios.html)
+
+Add quick-select buttons for baseline/favorable/stressed scenarios that use the templates from scenario_engine.py.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+#### [NEW] [tests/test_square_set_integration.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/tests/test_square_set_integration.py)
+
+- Test that netting ledger uses square-set requirements
+- Test tier-based allocation priority
+- Test convergence gating blocks partial-domain allocation
+
+#### [NEW] [tests/test_client_preprocessing.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/tests/test_client_preprocessing.py)
+
+- Test CSV with different column names
+- Test missing required columns
+- Test type conversion
+
+### Manual Verification
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Generate synthetic data | Parquet files in data/gold with square-set master |
+| 2 | Run app, check /convergence | Square-set convergence table, not kit readiness |
+| 3 | Change settings, restart app | Settings should persist |
+| 4 | Use preprocessing script on sample CSV | Clean Parquet output with mapped columns |
+| 5 | Load data with missing table | Clear error message in UI |
 
 ---
 
 ## Execution Order
 
-1. **Phase A** - Data contract + synthetic square-set generator
-2. **Phase I** - Settings page (enables threshold tuning early)
-3. **Phase B** - Square-set engine
-4. **Phase C** - Segmentation engine with UI-configurable thresholds
-5. **Phase D** - Demand tier handling
-6. **Phase E** - Buffer engine v2
-7. **Phase F** - Convergence dashboard
-8. **Phase G** - Engineering insights
-9. **Phase H** - Governance & reporting
+### Week 1: Phase 1 (Core Logic)
+1. Replace KitEngine with SquareSetEngine in netting_ledger.py
+2. Update pegging_engine.py for square-set context
+3. Integrate demand_tier into buffer_engine_v2.py
+4. Fix segmentation thresholds (shared ≥2, category-relative)
+
+### Week 2: Phase 2 (Data Robustness)
+5. Create preprocess_client_data.py and column_mapping.yml
+6. Add persistent settings storage
+7. Improve error messaging in loader and UI
+
+### Week 3: Phase 3 (Engineering & Governance)
+8. Implement fungibility logic
+9. Build-ahead sensitivity computation
+10. Scenario templates (baseline/upside/downside)
 
 ---
 
-## Ready to Execute
+## Files Summary
 
-User confirmed:
-- ✅ Assume new fields present (no App 1 updates first)
-- ✅ Generate synthetic square-set mapping
-- ✅ UI-configurable thresholds (not hardcoded)
-- ✅ Use "square-set" terminology
+### New Files
+| File | Purpose |
+|------|---------|
+| `preprocess_client_data.py` | Client flat file → Parquet converter |
+| `configs/column_mapping.yml` | Column name aliases for preprocessing |
+| `configs/user_settings.yml` | Persistent settings storage |
+| `tests/test_square_set_integration.py` | Integration tests |
+| `tests/test_client_preprocessing.py` | Preprocessing tests |
+
+### Modified Files
+| File | Changes |
+|------|---------|
+| `netting_ledger.py` | Use SquareSetEngine, tiered ledger |
+| `pegging_engine.py` | Square-set context, domain convergence |
+| `blocker_engine.py` | Square-set blocker attribution |
+| `stranded_engine.py` | Domain non-convergence stranding |
+| `buffer_engine_v2.py` | Tiered buffer targets, fungibility adjustment |
+| `segmentation_engine.py` | Fixed thresholds, category-relative, fungibility |
+| `scenario_engine.py` | Scenario templates |
+| `duckdb_loader.py` | Better error collection |
+| `app.py` | Persistent settings, error banners |
+
+---
+
+## Success Criteria
+
+### Core Logic (Phase 1)
+- [ ] All pages use "square-set" terminology, not "kit"
+- [ ] Netting ledger requirements come from `SquareSetEngine.get_aggregated_requirements()`
+- [ ] `SquareSetEngine.get_aggregated_requirements()` accepts and respects `demand_tier` parameter
+- [ ] Buffer targets vary by demand tier (max for committed, min for likely, zero for exploratory)
+- [ ] Buffer outputs include tier breakdown (committed/likely/exploratory columns)
+- [ ] Shared component threshold ≥2
+- [ ] Category-relative cost thresholds available as option
+
+### Data Robustness (Phase 2)
+- [ ] Client can drop CSV files and preprocess to Parquet
+- [ ] Preprocessing uses square-set terminology (`square_set_id`, `square_sets_planned`)
+- [ ] Settings persist across app restarts (via `configs/user_settings.yml`)
+- [ ] `configs/user_settings.yml` is in `.gitignore`
+- [ ] Missing data shows actionable error messages in UI
+- [ ] Scenario templates (baseline/favorable/stressed) are available in `scenario_engine.py`
+
+### Engineering & Governance (Phase 3)
+- [ ] Scenario page offers baseline/favorable/stressed quick-select buttons
+- [ ] Fungibility factor computed for items with generation data
+- [ ] Build-ahead sensitivity computed (or defaults to False if no historical data)

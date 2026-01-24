@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-header">
     <div>
-        <h1 class="page-title">Deployment & Kit Readiness</h1>
+        <h1 class="page-title">Deployment & Square-Set Readiness</h1>
         <p class="page-subtitle">GPU buffer strategy analytics and square-set completion tracking</p>
     </div>
 
@@ -91,12 +91,12 @@
 
     <div class="card metric-card animate-fade-in delay-2">
         <div class="card-header">
-            <span class="metric-label">Blocked Kits</span>
+            <span class="metric-label">Blocked Sets</span>
             <div class="card-icon">
                 <i class="fas fa-ban"></i>
             </div>
         </div>
-        <div class="metric-value error">{{ kpis.blocked_kits }}</div>
+        <div class="metric-value error">{{ kpis.blocked_sets }}</div>
         <p style="color: var(--text-muted); font-size: 0.85rem;">total blocked in window</p>
     </div>
 
@@ -126,7 +126,7 @@
 <div class="grid grid-2" style="margin-bottom: 2rem;">
     <div class="card animate-fade-in">
         <div class="card-header">
-            <h3 class="card-title">Kit Completion Rate</h3>
+            <h3 class="card-title">Square-Set Completion Rate</h3>
             <span class="badge badge-purple">{{ stats.current_scenario }}</span>
         </div>
         <div class="chart-container">
@@ -136,7 +136,7 @@
 
     <div class="card animate-fade-in">
         <div class="card-header">
-            <h3 class="card-title">Blocked Kits by Week</h3>
+            <h3 class="card-title">Blocked Sets by Week</h3>
             <span class="badge badge-purple">Filtered</span>
         </div>
         <div class="chart-container">
@@ -150,7 +150,7 @@
         <div class="card-icon" style="margin-bottom: 1rem;">
             <i class="fas fa-box"></i>
         </div>
-        <h3 class="card-title">Kit Readiness</h3>
+        <h3 class="card-title">Square-Set Readiness</h3>
         <p style="color: var(--text-secondary); font-size: 0.9rem;">
             View planned vs buildable square sets by site and week
         </p>
@@ -263,7 +263,7 @@
                 data: {
                     labels: weeks,
                     datasets: [{
-                        label: 'Blocked Kits',
+                        label: 'Blocked Sets',
                         data: blockedTrend.map(d => d.blocked),
                         backgroundColor: '#FF3366',
                         borderRadius: 4

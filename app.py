@@ -1,5 +1,5 @@
 """
-BufferLab - Deployment & Kit Readiness
+BufferLab - Deployment & Square-Set Readiness
 
 Flask application entry point.
 """
@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from bufferlab_deploy.config import load_config, get_config, set_config
 from bufferlab_deploy.duckdb_loader import DuckDBLoader, get_loader, reset_loader
 from bufferlab_deploy.data_contract import validate_data_contract
-from bufferlab_deploy.kit_engine import KitEngine
 from bufferlab_deploy.pegging_engine import PeggingEngine
 from bufferlab_deploy.blocker_engine import BlockerEngine
 from bufferlab_deploy.stranded_engine import StrandedEngine
@@ -150,17 +149,24 @@ def _get_sites(loader: DuckDBLoader) -> list[str]:
     return []
 
 
-def _get_kits(loader: DuckDBLoader) -> list[str]:
+def _get_square_sets(loader: DuckDBLoader) -> list[str]:
     if loader is None:
         return []
-    plan_table = get_plan_table(loader)
-    if not loader.loaded_tables.get(plan_table):
-        return []
+    if loader.loaded_tables.get("square_set_master"):
+        try:
+            result = loader.query(
+                "SELECT DISTINCT square_set_id FROM square_set_master ORDER BY square_set_id"
+            )
+            return result["square_set_id"].to_list()
+        except Exception:
+            pass
     try:
-        result = loader.query(f"SELECT DISTINCT kit_id FROM {plan_table} ORDER BY kit_id")
-        return result["kit_id"].to_list()
+        square_sets = SquareSetEngine(loader).get_or_create_square_set_master()
+        if len(square_sets) > 0 and "square_set_id" in square_sets.columns:
+            return square_sets["square_set_id"].to_list()
     except Exception:
-        return []
+        pass
+    return []
 
 
 def _get_weeks(loader: DuckDBLoader) -> list[str]:
@@ -208,7 +214,7 @@ def index():
 
     kpis = {
         "completion_rate": 0.0,
-        "blocked_kits": 0,
+        "blocked_sets": 0,
         "top_blocker": "N/A",
         "stranded_value": 0.0,
     }
@@ -223,24 +229,24 @@ def index():
 
             if len(pegging) > 0:
                 totals = pegging.select([
-                    pl.col("deployable_kits").sum().alias("total_deployable"),
-                    pl.col("buildable_kits").sum().alias("total_buildable"),
-                    pl.col("blocked_kits").sum().alias("total_blocked"),
+                    pl.col("deployable_sets").sum().alias("total_deployable"),
+                    pl.col("buildable_sets").sum().alias("total_buildable"),
+                    pl.col("blocked_sets").sum().alias("total_blocked"),
                 ]).to_dicts()[0]
 
                 if totals["total_deployable"] > 0:
                     kpis["completion_rate"] = round(
                         totals["total_buildable"] / totals["total_deployable"] * 100, 1
                     )
-                kpis["blocked_kits"] = int(totals["total_blocked"])
+                kpis["blocked_sets"] = int(totals["total_blocked"])
 
                 weekly = (
                     pegging
                     .group_by("week")
                     .agg([
-                        pl.col("deployable_kits").sum().alias("total_deployable"),
-                        pl.col("buildable_kits").sum().alias("total_buildable"),
-                        pl.col("blocked_kits").sum().alias("total_blocked"),
+                        pl.col("deployable_sets").sum().alias("total_deployable"),
+                        pl.col("buildable_sets").sum().alias("total_buildable"),
+                        pl.col("blocked_sets").sum().alias("total_blocked"),
                     ])
                     .sort("week")
                 )
@@ -293,15 +299,15 @@ def index():
 
 @app.route("/readiness")
 def readiness():
-    """Kit readiness page."""
+    """Square-set readiness page."""
     loader = AppState.loader
     scenario_id = AppState.current_scenario or get_config().analysis.default_scenario
     sites = _get_sites(loader)
-    kits = _get_kits(loader)
+    square_sets = _get_square_sets(loader)
     weeks = _get_weeks(loader)
 
     selected_site = request.args.get("site_id") or (sites[0] if sites else None)
-    selected_kit = request.args.get("kit_id") or (kits[0] if kits else None)
+    selected_square_set = request.args.get("square_set_id") or (square_sets[0] if square_sets else None)
     week_start = _parse_week(request.args.get("week_start"))
     week_end = _parse_week(request.args.get("week_end"))
     detail_week = _parse_week(request.args.get("detail_week"))
@@ -312,23 +318,34 @@ def readiness():
 
     if loader and AppState.get_stats().get("contract_passed"):
         try:
-            kit_engine = KitEngine(loader)
-            deployable = kit_engine.get_deployable_kits(scenario_id)
+            square_set_engine = SquareSetEngine(loader)
+            requirements = square_set_engine.get_square_set_requirements_detail(scenario_id)
+            if len(requirements) > 0:
+                deployable = (
+                    requirements
+                    .group_by(["week", "site_id", "square_set_id"])
+                    .agg([
+                        pl.col("square_sets_planned").max().alias("square_sets_planned"),
+                        pl.col("deployable_sets").max().alias("deployable_sets"),
+                    ])
+                )
+            else:
+                deployable = pl.DataFrame()
             pegging = PeggingEngine(loader).run_pegging(scenario_id)
 
             combined = deployable.join(
-                pegging.select(["week", "site_id", "kit_id", "buildable_kits", "blocked_kits"]),
-                on=["week", "site_id", "kit_id"],
+                pegging.select(["week", "site_id", "square_set_id", "buildable_sets", "blocked_sets"]),
+                on=["week", "site_id", "square_set_id"],
                 how="left"
             ).with_columns([
-                pl.col("buildable_kits").fill_null(0),
-                pl.col("blocked_kits").fill_null(0),
+                pl.col("buildable_sets").fill_null(0),
+                pl.col("blocked_sets").fill_null(0),
             ])
 
             if selected_site:
                 combined = combined.filter(pl.col("site_id") == selected_site)
-            if selected_kit:
-                combined = combined.filter(pl.col("kit_id") == selected_kit)
+            if selected_square_set:
+                combined = combined.filter(pl.col("square_set_id") == selected_square_set)
             combined = _filter_df(combined, None, week_start, week_end)
 
             if len(combined) > 0:
@@ -336,9 +353,9 @@ def readiness():
                     combined
                     .group_by("week")
                     .agg([
-                        pl.col("kits_planned").sum().alias("planned"),
-                        pl.col("deployable_kits").sum().alias("deployable"),
-                        pl.col("buildable_kits").sum().alias("buildable"),
+                        pl.col("square_sets_planned").sum().alias("planned"),
+                        pl.col("deployable_sets").sum().alias("deployable"),
+                        pl.col("buildable_sets").sum().alias("buildable"),
                     ])
                     .with_columns([
                         (pl.col("deployable") - pl.col("buildable")).alias("blocked")
@@ -370,7 +387,7 @@ def readiness():
                     detail = detail.filter(pl.col("site_id") == selected_site)
                 detail_rows = [
                     {**row, "week": _format_week(row["week"])}
-                    for row in detail.sort(["priority", "kit_id"]).to_dicts()
+                    for row in detail.sort(["priority", "square_set_id"]).to_dicts()
                 ]
         except Exception:
             pass
@@ -379,11 +396,11 @@ def readiness():
         "readiness.html",
         scenario_id=scenario_id,
         sites=sites,
-        kits=kits,
+        kits=square_sets,
         weeks=weeks,
         filters={
             "site_id": selected_site or "",
-            "kit_id": selected_kit or "",
+            "square_set_id": selected_square_set or "",
             "week_start": _format_week(week_start) if week_start else "",
             "week_end": _format_week(week_end) if week_end else "",
             "detail_week": _format_week(detail_week) if detail_week else "",
@@ -428,9 +445,9 @@ def pegging():
                     pegging_df
                     .group_by("priority_bucket")
                     .agg([
-                        pl.col("deployable_kits").sum().alias("total_deployable"),
-                        pl.col("buildable_kits").sum().alias("total_buildable"),
-                        pl.col("blocked_kits").sum().alias("total_blocked"),
+                        pl.col("deployable_sets").sum().alias("total_deployable"),
+                        pl.col("buildable_sets").sum().alias("total_buildable"),
+                        pl.col("blocked_sets").sum().alias("total_blocked"),
                     ])
                     .with_columns([
                         (pl.col("total_buildable") / pl.col("total_deployable") * 100)
@@ -442,11 +459,11 @@ def pegging():
                 priority_summary = priority_summary_df.to_dicts()
 
                 pegging_rows = pegging_df.with_columns([
-                    pl.when((pl.col("blocked_kits") > 0) & (pl.col("priority") > 20))
+                    pl.when((pl.col("blocked_sets") > 0) & (pl.col("priority") > 20))
                     .then(pl.lit(True))
                     .otherwise(pl.lit(False))
                     .alias("priority_shift")
-                ]).sort(["week", "site_id", "priority", "kit_id"]).to_dicts()
+                ]).sort(["week", "site_id", "priority", "square_set_id"]).to_dicts()
                 pegging_rows = [
                     {**row, "week": _format_week(row["week"])}
                     for row in pegging_rows
@@ -500,7 +517,7 @@ def blockers():
                     .agg([
                         pl.col("gap_qty").sum().alias("total_gap_qty"),
                         pl.col("gap_value").sum().alias("total_gap_value"),
-                        pl.col("kit_id").n_unique().alias("kits_affected"),
+                        pl.col("square_set_id").n_unique().alias("square_sets_affected"),
                         pl.col("site_id").n_unique().alias("sites_affected"),
                         pl.col("week").n_unique().alias("weeks_affected"),
                     ])
@@ -958,17 +975,17 @@ def api_run_analysis():
     try:
         scenario_id = AppState.current_scenario or get_config().analysis.default_scenario
         pegging = PeggingEngine(AppState.loader).run_pegging(scenario_id)
-        blocked = int(pegging["blocked_kits"].sum()) if len(pegging) > 0 else 0
-        deployable = int(pegging["deployable_kits"].sum()) if len(pegging) > 0 else 0
-        buildable = int(pegging["buildable_kits"].sum()) if len(pegging) > 0 else 0
+        blocked = int(pegging["blocked_sets"].sum()) if len(pegging) > 0 else 0
+        deployable = int(pegging["deployable_sets"].sum()) if len(pegging) > 0 else 0
+        buildable = int(pegging["buildable_sets"].sum()) if len(pegging) > 0 else 0
 
         AppState.last_analysis_run = datetime.now()
         return jsonify({
             "success": True,
             "scenario_id": scenario_id,
-            "blocked_kits": blocked,
-            "deployable_kits": deployable,
-            "buildable_kits": buildable,
+            "blocked_sets": blocked,
+            "deployable_sets": deployable,
+            "buildable_sets": buildable,
             "run_time": AppState.last_analysis_run.isoformat(),
         })
     except Exception as e:
@@ -1067,7 +1084,8 @@ def api_save_settings():
             'long_lead_threshold': int(data.get('long_lead_threshold', 60)),
             'long_lead_days_to_risk_min': int(data.get('long_lead_days_to_risk_min', 180)),
             'build_ahead_stranding_pct': float(data.get('build_ahead_stranding_pct', 0.30)),
-            'shared_usage_threshold': int(data.get('shared_usage_threshold', 1)),
+            'shared_usage_threshold': int(data.get('shared_usage_threshold', 2)),
+            'use_category_relative_cost': str(data.get('use_category_relative_cost', '')).lower() in {"1", "true", "yes", "on"},
             'committed_max_coverage_weeks': int(data.get('committed_max_coverage_weeks', 6)),
             'likely_max_coverage_weeks': int(data.get('likely_max_coverage_weeks', 2)),
             'exploratory_coverage_weeks': int(data.get('exploratory_coverage_weeks', 0)),
@@ -1109,7 +1127,8 @@ def api_export_settings():
             'long_lead_threshold': thresholds.get('long_lead_threshold', 60),
             'long_lead_days_to_risk_min': thresholds.get('long_lead_days_to_risk_min', 180),
             'build_ahead_stranding_pct': thresholds.get('build_ahead_stranding_pct', 0.30),
-            'shared_usage_threshold': thresholds.get('shared_usage_threshold', 1),
+            'shared_usage_threshold': thresholds.get('shared_usage_threshold', 2),
+            'use_category_relative_cost': thresholds.get('use_category_relative_cost', False),
         },
         'buffer_policy': {
             'committed_max_coverage_weeks': thresholds.get('committed_max_coverage_weeks', 6),
@@ -1412,7 +1431,7 @@ initialize_app()
 
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print("  BufferLab - Deployment & Kit Readiness")
+    print("  BufferLab - Deployment & Square-Set Readiness")
     print("  Open in browser: http://127.0.0.1:5001")
     print("=" * 60 + "\n")
     
