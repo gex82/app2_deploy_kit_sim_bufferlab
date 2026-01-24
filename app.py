@@ -30,6 +30,45 @@ from bufferlab_deploy.segmentation_engine import SegmentationEngine, Segmentatio
 
 app = Flask(__name__)
 app.secret_key = 'bufferlab-deploy-secret-key-2024'
+SETTINGS_FILE = Path("configs/user_settings.yml")
+
+
+def load_settings_from_file() -> dict:
+    """Load settings from YAML file if present."""
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        import yaml
+        data = yaml.safe_load(SETTINGS_FILE.read_text()) or {}
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    if "segmentation_thresholds" in data or "buffer_policy" in data:
+        merged: dict[str, object] = {}
+        merged.update(data.get("segmentation_thresholds", {}) or {})
+        merged.update(data.get("buffer_policy", {}) or {})
+        return merged
+    return data
+
+
+def save_settings_to_file(settings: dict) -> None:
+    """Persist settings to local YAML file."""
+    import yaml
+    SETTINGS_FILE.parent.mkdir(exist_ok=True)
+    SETTINGS_FILE.write_text(yaml.dump(settings, default_flow_style=False))
+
+
+def _get_thresholds_dict() -> dict:
+    """Get thresholds from session or persisted file."""
+    thresholds = session.get('thresholds')
+    if not thresholds:
+        file_settings = load_settings_from_file()
+        if file_settings:
+            session['thresholds'] = file_settings
+            session.modified = True
+            thresholds = file_settings
+    return thresholds or {}
 
 
 # =============================================================================
@@ -42,6 +81,7 @@ class AppState:
     contract_result = None
     last_analysis_run = None
     current_scenario = None
+    loader_errors = None
     
     @classmethod
     def initialize(cls):
@@ -54,6 +94,7 @@ class AppState:
         
         # Validate data contract
         cls.contract_result = validate_data_contract(cls.loader)
+        cls.loader_errors = cls.loader.get_loader_errors()
         
         # Set default scenario
         cls.current_scenario = config.analysis.default_scenario
@@ -188,6 +229,8 @@ def inject_stats():
     return {
         "stats": AppState.get_stats(),
         "now": datetime.now(),
+        "loader_errors": AppState.loader_errors.get_user_messages()
+        if AppState.loader_errors else [],
     }
 
 
@@ -739,9 +782,9 @@ def error_page():
 @app.route("/settings")
 def settings():
     """Settings page for configuring thresholds."""
-    # Get thresholds from session or defaults
-    if 'thresholds' in session:
-        thresholds = SegmentationThresholds(**session['thresholds'])
+    thresholds_dict = _get_thresholds_dict()
+    if thresholds_dict:
+        thresholds = SegmentationThresholds(**thresholds_dict)
     else:
         thresholds = SegmentationThresholds()
     
@@ -865,9 +908,9 @@ def segmentation():
     
     if loader and AppState.get_stats().get("contract_passed"):
         try:
-            # Get thresholds from session
-            if 'thresholds' in session:
-                thresholds = SegmentationThresholds(**session['thresholds'])
+            thresholds_dict = _get_thresholds_dict()
+            if thresholds_dict:
+                thresholds = SegmentationThresholds(**thresholds_dict)
             else:
                 thresholds = SegmentationThresholds()
             
@@ -957,6 +1000,8 @@ def api_reload_data():
         return jsonify({
             "success": True,
             "stats": AppState.get_stats(),
+            "loader_errors": AppState.loader_errors.get_user_messages()
+            if AppState.loader_errors else [],
             "message": "Data reloaded successfully",
         })
     except Exception as e:
@@ -1091,9 +1136,13 @@ def api_save_settings():
             'exploratory_coverage_weeks': int(data.get('exploratory_coverage_weeks', 0)),
             'transition_buffer_reduction_pct': float(data.get('transition_buffer_reduction_pct', 0.33)),
         }
+        persist = str(data.get('persist', '')).lower() in {"1", "true", "yes", "on"}
         
         session['thresholds'] = thresholds_dict
         session.modified = True
+
+        if persist:
+            save_settings_to_file(thresholds_dict)
         
         return jsonify({'success': True, 'message': 'Settings saved successfully'})
     except Exception as e:
@@ -1105,6 +1154,8 @@ def api_reset_settings():
     """Reset settings to defaults."""
     session.pop('thresholds', None)
     session.modified = True
+    if SETTINGS_FILE.exists():
+        SETTINGS_FILE.unlink()
     return jsonify({'success': True, 'message': 'Settings reset to defaults'})
 
 
@@ -1112,11 +1163,8 @@ def api_reset_settings():
 def api_export_settings():
     """Export current settings as YAML."""
     import yaml
-    
-    if 'thresholds' in session:
-        thresholds = session['thresholds']
-    else:
-        thresholds = SegmentationThresholds().__dict__
+
+    thresholds = _get_thresholds_dict() or SegmentationThresholds().__dict__
     
     settings_dict = {
         'segmentation_thresholds': {

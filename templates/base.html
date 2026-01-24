@@ -205,6 +205,39 @@
             padding: 2rem;
         }
 
+        .error-banner {
+            background: rgba(255, 51, 102, 0.1);
+            border: 1px solid rgba(255, 51, 102, 0.4);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .error-banner-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        .error-banner-header i {
+            color: var(--error);
+        }
+
+        .error-banner-link {
+            margin-left: auto;
+            color: var(--error);
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+
+        .error-banner ul {
+            margin-left: 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
         .page-header {
             margin-bottom: 2rem;
             display: flex;
@@ -839,6 +872,20 @@
 
     <!-- Main Content -->
     <main class="main">
+        {% if loader_errors %}
+        <div class="error-banner">
+            <div class="error-banner-header">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>Data Issues Detected</span>
+                <a class="error-banner-link" href="/diagnostics">View Details</a>
+            </div>
+            <ul>
+                {% for error in loader_errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 

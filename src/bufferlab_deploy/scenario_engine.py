@@ -18,6 +18,27 @@ from bufferlab_deploy.config import get_config
 
 DemandTier = Literal["committed", "likely", "exploratory", "all"]
 
+SCENARIO_TEMPLATES = {
+    "baseline": {
+        "description": "Current plan assumptions",
+        "power_adjustment": 1.0,
+        "supply_adjustment": 1.0,
+        "demand_adjustment": 1.0,
+    },
+    "favorable": {
+        "description": "Eased constraints: more power/supply, same demand",
+        "power_adjustment": 1.2,
+        "supply_adjustment": 1.1,
+        "demand_adjustment": 1.0,
+    },
+    "stressed": {
+        "description": "Tighter constraints: less power/supply, increased demand",
+        "power_adjustment": 0.8,
+        "supply_adjustment": 0.8,
+        "demand_adjustment": 1.2,
+    },
+}
+
 
 class ScenarioEngine:
     """
@@ -123,6 +144,52 @@ class ScenarioEngine:
             "total": self.get_scenario_summary(
                 scenario_id, site_id, week_start, week_end, "all"
             ),
+        }
+
+    def run_scenario_variant(self, template: str, base_scenario: str) -> dict[str, object]:
+        """
+        Apply scenario template adjustments to a base scenario summary.
+        """
+        if template not in SCENARIO_TEMPLATES:
+            return {
+                "template": template,
+                "error": "Unknown scenario template",
+            }
+
+        base_summary = self.get_scenario_summary(base_scenario)
+        tmpl = SCENARIO_TEMPLATES[template]
+
+        demand_factor = float(tmpl.get("demand_adjustment", 1.0))
+        supply_factor = float(tmpl.get("supply_adjustment", 1.0))
+        power_factor = float(tmpl.get("power_adjustment", 1.0))
+        supply_cap = min(supply_factor, power_factor)
+
+        base_deployable = int(base_summary.get("total_deployable", 0))
+        base_buildable = int(base_summary.get("total_buildable", 0))
+
+        adjusted_deployable = int(base_deployable * demand_factor)
+        adjusted_buildable = int(base_buildable * supply_cap)
+        adjusted_buildable = min(adjusted_buildable, adjusted_deployable)
+        adjusted_blocked = max(adjusted_deployable - adjusted_buildable, 0)
+        completion_rate = round(
+            adjusted_buildable / max(adjusted_deployable, 1) * 100, 1
+        )
+
+        stranded_value = float(base_summary.get("stranded_value", 0.0))
+        stranded_value = round(stranded_value * demand_factor, 2)
+
+        return {
+            "template": template,
+            "description": tmpl.get("description", ""),
+            "base_scenario": base_scenario,
+            "power_adjustment": power_factor,
+            "supply_adjustment": supply_factor,
+            "demand_adjustment": demand_factor,
+            "total_deployable": adjusted_deployable,
+            "total_buildable": adjusted_buildable,
+            "total_blocked": adjusted_blocked,
+            "completion_rate": completion_rate,
+            "stranded_value": stranded_value,
         }
 
     def run_tiered_netting_ledger(

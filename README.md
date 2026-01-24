@@ -18,6 +18,14 @@ python app.py
 
 Open `http://127.0.0.1:5001`.
 
+## Preprocess Client Files
+Use the preprocessing utility to map client flat files into App 2 gold tables:
+```bash
+python preprocess_client_data.py --input <path> --table <table_name>
+```
+
+Inputs are mapped via `configs/column_mapping.yml` and written to `data/gold/`.
+
 ## Data Inputs (App 1 Contract)
 App 2 reads App 1 gold outputs from `data/gold/*.parquet`. App 2 does no cleaning beyond filtering and joins.
 
@@ -41,6 +49,7 @@ If any contract check fails, App 2 shows a Data Contract Error page with remedia
 
 ## Configuration
 Config file: `configs/default_config.yml`
+Local settings file (gitignored): `configs/user_settings.yml`
 
 Key settings:
 - `data.gold_path`: location of App 1 gold tables.

@@ -6,6 +6,7 @@ Quick start:
 - Install deps: `python -m pip install -r requirements.txt`
 - Run app: `python app.py`
 - Open: `http://127.0.0.1:5001`
+- Preprocess client files: `python preprocess_client_data.py --input <path> --table <table_name>`
 
 Data expectations:
 - App reads App 1 gold parquet tables from `data/gold`.
@@ -31,6 +32,7 @@ Common pitfalls:
 - Supply date columns can be `promised_date`, `promise_date`, or `promise_week`.
 - `week` joins require consistent DATE types; use `sql_utils.get_supply_week_expr`.
 - Data contract errors block analysis; fix in App 1 export first.
+- Persisted settings live in `configs/user_settings.yml` (gitignored).
 
 Testing:
 - `pytest -q` for contract/ledger/pegging regressions.

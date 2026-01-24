@@ -1,0 +1,103 @@
+# Maps client column names to App 2 expected names.
+# Note: deployment_plan accepts square_set_id/square_sets_planned aliases for compatibility.
+
+deployment_plan:
+  aliases:
+    kit_id: ["square_set_id", "deployment_id", "build_id", "kit"]
+    kits_planned: ["square_sets_planned", "quantity", "qty", "planned_qty", "units"]
+    site_id: ["location", "site", "dc_id"]
+    week: ["plan_week", "target_week", "date"]
+    demand_tier: ["tier", "priority_tier", "demand_type"]
+    priority: ["priority_code", "prio"]
+    program_id: ["program", "program_code"]
+  required: ["week", "site_id", "kit_id", "kits_planned"]
+  optional: ["demand_tier", "priority", "program_id"]
+
+square_set_master:
+  aliases:
+    square_set_id: ["deployment_id", "build_id", "square_set"]
+    site_id: ["location", "site", "dc_id"]
+    it_rack_kit_id: ["it_rack_id", "compute_kit_id", "it_kit_id"]
+    callan_kit_id: ["hxu_kit_id", "cooling_kit_id", "callan_kit_id"]
+    mor_kit_id: ["network_kit_id", "fabric_kit_id", "mor_kit_id"]
+    power_mw_required: ["power_mw", "power_requirement_mw"]
+  required: ["square_set_id", "site_id", "it_rack_kit_id", "callan_kit_id", "mor_kit_id"]
+  optional: ["power_mw_required"]
+
+bom_kit:
+  aliases:
+    kit_id: ["kit", "parent_kit_id"]
+    child_item_id: ["item_id", "component_id", "child_id"]
+    qty_per: ["qty", "quantity", "qty_per_kit"]
+    effective_start_week: ["start_week", "effective_start"]
+    effective_end_week: ["end_week", "effective_end"]
+    kit_criticality: ["criticality", "blocking_flag"]
+  required: ["kit_id", "child_item_id", "qty_per", "effective_start_week"]
+  optional: ["effective_end_week", "kit_criticality", "revision"]
+
+inventory_position:
+  aliases:
+    as_of_date: ["asof_date", "snapshot_date", "week"]
+    item_id: ["part_number", "sku", "component_id"]
+    node_id: ["node", "location_id", "warehouse_id"]
+    on_hand: ["qty_on_hand", "inventory_on_hand"]
+    usable_on_hand: ["available_on_hand", "usable_qty", "available_qty"]
+    reserved: ["reserved_qty"]
+    aging_days: ["age_days", "aging"]
+    unit_cost: ["cost", "unit_cost_usd"]
+  required: ["as_of_date", "item_id", "node_id", "on_hand", "usable_on_hand"]
+  optional: ["reserved", "aging_days", "unit_cost"]
+
+supply:
+  aliases:
+    item_id: ["part_number", "sku", "component_id"]
+    node_id: ["node", "location_id", "warehouse_id"]
+    qty: ["quantity", "supply_qty"]
+    status: ["supply_status"]
+    promised_date: ["promise_date", "promised_delivery", "promise_week"]
+    allocation_flag: ["allocated", "allocation"]
+    confidence_weight: ["confidence", "confidence_score"]
+  required: ["item_id", "node_id", "qty", "status"]
+  optional: ["promised_date", "promise_date", "promise_week", "allocation_flag", "confidence_weight"]
+
+site_readiness:
+  aliases:
+    scenario_id: ["scenario", "scenario_name"]
+    site_id: ["location", "site", "dc_id"]
+    week: ["plan_week", "date"]
+    readiness_capacity_kits: ["capacity_kits", "readiness_capacity"]
+    power_ready_mw: ["power_mw", "power_ready"]
+    readiness_state: ["status", "state"]
+  required: ["scenario_id", "site_id", "week"]
+  optional: ["readiness_capacity_kits", "power_ready_mw", "readiness_state"]
+
+item_master:
+  aliases:
+    item_id: ["part_number", "sku", "component_id"]
+    category: ["item_category", "type"]
+    subcategory: ["item_subcategory", "sub_type"]
+    unit_cost: ["cost", "price", "unit_price"]
+    description: ["item_description", "desc"]
+    value_density: ["value_per_u"]
+    shared_flag: ["is_shared"]
+    build_ahead_flag: ["build_ahead_sensitive"]
+  required: ["item_id", "category", "subcategory", "value_density", "shared_flag", "build_ahead_flag"]
+  optional: ["unit_cost", "description", "uom"]
+
+node_master:
+  aliases:
+    node_id: ["node", "location_id"]
+    site_id: ["site", "dc_id"]
+    node_type: ["type", "node_category"]
+    region: ["geo", "area"]
+  required: ["node_id", "site_id", "node_type"]
+  optional: ["region"]
+
+lane_master:
+  aliases:
+    from_node_id: ["from_node", "source_node"]
+    to_node_id: ["to_node", "dest_node"]
+    transfer_lead_time_days: ["lead_time_days", "transfer_days"]
+    transfer_capacity_units_per_week: ["capacity_units_week", "capacity"]
+  required: ["from_node_id", "to_node_id", "transfer_lead_time_days"]
+  optional: ["transfer_capacity_units_per_week", "allowed_categories"]

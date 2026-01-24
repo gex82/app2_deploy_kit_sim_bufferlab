@@ -8,6 +8,32 @@ from pathlib import Path
 
 from bufferlab_deploy.segmentation_engine import SegmentationThresholds
 
+SETTINGS_FILE = Path("configs/user_settings.yml")
+
+
+def load_settings_from_file() -> dict:
+    """Load settings from YAML file if present."""
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        data = yaml.safe_load(SETTINGS_FILE.read_text()) or {}
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    if "segmentation_thresholds" in data or "buffer_policy" in data:
+        merged: dict[str, object] = {}
+        merged.update(data.get("segmentation_thresholds", {}) or {})
+        merged.update(data.get("buffer_policy", {}) or {})
+        return merged
+    return data
+
+
+def save_settings_to_file(settings: dict) -> None:
+    """Persist settings to local YAML file."""
+    SETTINGS_FILE.parent.mkdir(exist_ok=True)
+    SETTINGS_FILE.write_text(yaml.dump(settings, default_flow_style=False))
+
 bp = Blueprint('settings', __name__)
 
 
@@ -15,6 +41,11 @@ def get_thresholds_from_session() -> SegmentationThresholds:
     """Get thresholds from session or defaults."""
     if 'thresholds' in session:
         return SegmentationThresholds(**session['thresholds'])
+    file_settings = load_settings_from_file()
+    if file_settings:
+        session['thresholds'] = file_settings
+        session.modified = True
+        return SegmentationThresholds(**file_settings)
     return SegmentationThresholds()
 
 
@@ -68,6 +99,9 @@ def save_settings():
         )
         
         save_thresholds_to_session(thresholds)
+        persist = str(data.get('persist', '')).lower() in {"1", "true", "yes", "on"}
+        if persist:
+            save_settings_to_file(session['thresholds'])
         
         return jsonify({'success': True, 'message': 'Settings saved successfully'})
     except Exception as e:
@@ -79,6 +113,8 @@ def reset_settings():
     """Reset to default settings."""
     session.pop('thresholds', None)
     session.modified = True
+    if SETTINGS_FILE.exists():
+        SETTINGS_FILE.unlink()
     return jsonify({'success': True, 'message': 'Settings reset to defaults'})
 
 
