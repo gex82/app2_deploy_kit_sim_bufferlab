@@ -146,7 +146,15 @@ class ScenarioEngine:
             ),
         }
 
-    def run_scenario_variant(self, template: str, base_scenario: str) -> dict[str, object]:
+    def run_scenario_variant(
+        self,
+        template: str,
+        base_scenario: str,
+        site_id: str | None = None,
+        week_start: date | None = None,
+        week_end: date | None = None,
+        demand_tier: DemandTier = "all",
+    ) -> dict[str, object]:
         """
         Apply scenario template adjustments to a base scenario summary.
         """
@@ -156,7 +164,13 @@ class ScenarioEngine:
                 "error": "Unknown scenario template",
             }
 
-        base_summary = self.get_scenario_summary(base_scenario)
+        base_summary = self.get_scenario_summary(
+            base_scenario,
+            site_id=site_id,
+            week_start=week_start,
+            week_end=week_end,
+            demand_tier=demand_tier,
+        )
         tmpl = SCENARIO_TEMPLATES[template]
 
         demand_factor = float(tmpl.get("demand_adjustment", 1.0))

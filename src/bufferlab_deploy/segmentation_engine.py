@@ -16,7 +16,6 @@ import polars as pl
 from bufferlab_deploy.duckdb_loader import DuckDBLoader
 from bufferlab_deploy.config import get_config
 from bufferlab_deploy.square_set_engine import SquareSetEngine
-from bufferlab_deploy.stranded_engine import StrandedEngine
 
 
 @dataclass
@@ -366,7 +365,6 @@ class SegmentationEngine:
         """
         t = self.thresholds
         square_set_engine = SquareSetEngine(self.loader)
-        stranded_engine = StrandedEngine(self.loader)
 
         required = square_set_engine.get_aggregated_requirements()
         stranded = pl.DataFrame()
@@ -388,11 +386,15 @@ class SegmentationEngine:
                 pl.col(units_col).sum().alias("stranded_units")
             )
             break
-        if len(stranded) == 0:
-            stranded = stranded_engine.get_stranded_summary()
         item_master = self.loader.get_table("item_master")
 
         if len(required) == 0:
+            if item_master is not None and "build_ahead_flag" in item_master.columns:
+                return item_master.select([
+                    "item_id",
+                    pl.col("build_ahead_flag").cast(pl.Boolean, strict=False)
+                    .alias("build_ahead_sensitivity"),
+                ])
             return pl.DataFrame()
 
         required_totals = required.group_by("item_id").agg(
@@ -427,6 +429,18 @@ class SegmentationEngine:
 
         return combined.select(["item_id", "build_ahead_sensitivity"])
 
+    def _compute_build_ahead_sensitivity(self, item_id: str) -> bool:
+        """
+        Determine if a single item is build-ahead sensitive.
+        """
+        build_ahead = self._get_build_ahead_sensitivity()
+        if len(build_ahead) == 0:
+            return False
+        match = build_ahead.filter(pl.col("item_id") == item_id)
+        if len(match) == 0:
+            return False
+        return bool(match["build_ahead_sensitivity"][0])
+
     def _get_break_glass_exceptions(self) -> pl.DataFrame:
         """
         Read break-glass overrides from item_master if present.
@@ -439,6 +453,151 @@ class SegmentationEngine:
             "item_id",
             pl.col("break_glass_exception").cast(pl.Boolean, strict=False).alias("break_glass_exception")
         ])
+
+    def compute_fungibility_factor(self, item_id: str) -> dict[str, object]:
+        """
+        Determine item fungibility based on generation and substitution rules.
+        """
+        context = self._build_fungibility_context()
+        return self._compute_fungibility_record(item_id, context)
+
+    def _build_fungibility_context(self) -> dict[str, object]:
+        generation_by_item: dict[str, str] = {}
+        compatibility_by_item: dict[str, str] = {}
+        group_items: dict[str, set[str]] = {}
+
+        lifecycle = self.loader.get_table("lifecycle")
+        if lifecycle is not None and len(lifecycle) > 0 and "item_id" in lifecycle.columns:
+            cols = set(lifecycle.columns)
+            select_cols = ["item_id"]
+            if "generation" in cols:
+                select_cols.append("generation")
+            if "compatibility_group" in cols:
+                select_cols.append("compatibility_group")
+            for row in lifecycle.select(select_cols).to_dicts():
+                item = row.get("item_id")
+                if not item:
+                    continue
+                generation = row.get("generation")
+                compatibility = row.get("compatibility_group")
+                if generation is not None:
+                    generation_by_item[item] = str(generation)
+                if compatibility is not None:
+                    compatibility_str = str(compatibility)
+                    compatibility_by_item[item] = compatibility_str
+                    group_items.setdefault(compatibility_str, set()).add(item)
+
+        sub_to: dict[str, set[str]] = {}
+        sub_from: dict[str, set[str]] = {}
+        sub_types: dict[str, set[str]] = {}
+
+        substitution_map = self.loader.get_table("substitution_map")
+        if substitution_map is not None and len(substitution_map) > 0:
+            cols = set(substitution_map.columns)
+            if "from_item_id" in cols and "to_item_id" in cols:
+                select_cols = ["from_item_id", "to_item_id"]
+                if "substitution_type" in cols:
+                    select_cols.append("substitution_type")
+                for row in substitution_map.select(select_cols).to_dicts():
+                    from_item = row.get("from_item_id")
+                    to_item = row.get("to_item_id")
+                    if not from_item or not to_item:
+                        continue
+                    sub_to.setdefault(from_item, set()).add(to_item)
+                    sub_from.setdefault(to_item, set()).add(from_item)
+                    sub_type = row.get("substitution_type")
+                    if sub_type:
+                        sub_types.setdefault(from_item, set()).add(str(sub_type))
+                        sub_types.setdefault(to_item, set()).add(str(sub_type))
+
+        return {
+            "generation_by_item": generation_by_item,
+            "compatibility_by_item": compatibility_by_item,
+            "group_items": group_items,
+            "sub_to": sub_to,
+            "sub_from": sub_from,
+            "sub_types": sub_types,
+        }
+
+    def _compute_fungibility_record(
+        self,
+        item_id: str,
+        context: dict[str, object],
+    ) -> dict[str, object]:
+        generation_by_item = context.get("generation_by_item", {})
+        compatibility_by_item = context.get("compatibility_by_item", {})
+        group_items = context.get("group_items", {})
+        sub_to = context.get("sub_to", {})
+        sub_from = context.get("sub_from", {})
+        sub_types = context.get("sub_types", {})
+
+        generation = generation_by_item.get(item_id)
+        compatibility_group = compatibility_by_item.get(item_id)
+        can_sub_to = set(sub_to.get(item_id, set()))
+        can_sub_from = set(sub_from.get(item_id, set()))
+        types = set(sub_types.get(item_id, set()))
+
+        if not can_sub_to and not can_sub_from and compatibility_group:
+            group = set(group_items.get(compatibility_group, set()))
+            group.discard(item_id)
+            if group:
+                can_sub_to.update(group)
+                can_sub_from.update(group)
+                types.add("minor_gen")
+
+        def map_to_generation(ids: set[str]) -> list[str]:
+            mapped: list[str] = []
+            for candidate in ids:
+                mapped.append(generation_by_item.get(candidate) or candidate)
+            return list(dict.fromkeys(mapped))
+
+        normalized_types = {str(t).lower() for t in types if t}
+        if "major_gen" in normalized_types:
+            substitution_type = "major_gen"
+        elif "minor_gen" in normalized_types or "equivalent" in normalized_types:
+            substitution_type = "minor_gen"
+        else:
+            substitution_type = None
+
+        return {
+            "item_id": item_id,
+            "generation": generation,
+            "compatibility_group": compatibility_group,
+            "can_substitute_to": map_to_generation(can_sub_to),
+            "can_substitute_from": map_to_generation(can_sub_from),
+            "substitution_type": substitution_type,
+            "is_fungible": substitution_type == "minor_gen",
+        }
+
+    def _get_fungibility_map(self) -> pl.DataFrame:
+        """
+        Build fungibility factors for all items.
+        """
+        item_master = self.loader.get_table("item_master")
+        lifecycle = self.loader.get_table("lifecycle")
+
+        if item_master is not None and "item_id" in item_master.columns:
+            item_ids = item_master["item_id"].unique().to_list()
+        elif lifecycle is not None and "item_id" in lifecycle.columns:
+            item_ids = lifecycle["item_id"].unique().to_list()
+        else:
+            return pl.DataFrame()
+
+        context = self._build_fungibility_context()
+        records = [
+            self._compute_fungibility_record(item_id, context)
+            for item_id in item_ids
+        ]
+        if not records:
+            return pl.DataFrame()
+
+        return pl.DataFrame(records).select([
+            "item_id",
+            "can_substitute_to",
+            "can_substitute_from",
+            "substitution_type",
+            "is_fungible",
+        ])
     
     def get_full_segmentation(self) -> pl.DataFrame:
         """
@@ -449,6 +608,10 @@ class SegmentationEngine:
         """
         items = self.assign_base_segments()
         items = self.compute_overlay_tags(items)
+
+        fungibility = self._get_fungibility_map()
+        if len(fungibility) > 0:
+            items = items.join(fungibility, on="item_id", how="left")
         
         # Join with item_master for additional info
         item_master = self.loader.get_table("item_master")

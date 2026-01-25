@@ -22,7 +22,7 @@ from bufferlab_deploy.pegging_engine import PeggingEngine
 from bufferlab_deploy.blocker_engine import BlockerEngine
 from bufferlab_deploy.stranded_engine import StrandedEngine
 from bufferlab_deploy.buffer_engine import BufferEngine
-from bufferlab_deploy.scenario_engine import ScenarioEngine
+from bufferlab_deploy.scenario_engine import ScenarioEngine, SCENARIO_TEMPLATES
 from bufferlab_deploy.sql_utils import get_plan_table
 from bufferlab_deploy.square_set_engine import SquareSetEngine
 from bufferlab_deploy.segmentation_engine import SegmentationEngine, SegmentationThresholds
@@ -684,6 +684,7 @@ def scenarios():
     """Scenario comparison page."""
     loader = AppState.loader
     scenario_options = _get_scenarios(loader)
+    template_options = list(SCENARIO_TEMPLATES.keys())
     sites = _get_sites(loader)
     weeks = _get_weeks(loader)
 
@@ -698,16 +699,43 @@ def scenarios():
     if loader and AppState.get_stats().get("contract_passed"):
         try:
             scenario_engine = ScenarioEngine(loader)
+            if scenario_a and not scenario_a.startswith("template:"):
+                template_base = scenario_a
+            elif scenario_options:
+                template_base = scenario_options[0]
+            else:
+                template_base = get_config().analysis.default_scenario
             for scenario_id in [scenario_a, scenario_b, scenario_c]:
                 if scenario_id:
-                    summaries.append(
-                        scenario_engine.get_scenario_summary(
-                            scenario_id,
+                    if scenario_id.startswith("template:"):
+                        template_key = scenario_id.split("template:", 1)[1]
+                        template_summary = scenario_engine.run_scenario_variant(
+                            template_key,
+                            template_base,
                             site_id=selected_site,
                             week_start=week_start,
                             week_end=week_end,
                         )
-                    )
+                        if "error" in template_summary:
+                            continue
+                        summaries.append({
+                            "scenario_id": f"{template_key} (template)",
+                            "total_deployable": template_summary.get("total_deployable", 0),
+                            "total_buildable": template_summary.get("total_buildable", 0),
+                            "total_blocked": template_summary.get("total_blocked", 0),
+                            "completion_rate": template_summary.get("completion_rate", 0.0),
+                            "top_blocker": "Template",
+                            "stranded_value": template_summary.get("stranded_value", 0.0),
+                        })
+                    else:
+                        summaries.append(
+                            scenario_engine.get_scenario_summary(
+                                scenario_id,
+                                site_id=selected_site,
+                                week_start=week_start,
+                                week_end=week_end,
+                            )
+                        )
         except Exception:
             pass
 
@@ -721,6 +749,7 @@ def scenarios():
     return render_template(
         "scenarios.html",
         scenario_options=scenario_options,
+        template_options=template_options,
         sites=sites,
         weeks=weeks,
         filters={

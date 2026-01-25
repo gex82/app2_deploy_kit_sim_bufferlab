@@ -71,6 +71,8 @@ class BufferEngineV2:
         "B3": "regional", "B4": "regional",
         "N1": "site", "N2": "site", "N3": "site", "N4": "site",
     }
+
+    FUNGIBILITY_REDUCTION_PCT = 0.15
     
     def __init__(
         self, 
@@ -88,6 +90,7 @@ class BufferEngineV2:
         demand_tier: str = "committed",
         has_transition_tag: bool = False,
         has_high_eo: bool = False,
+        substitution_type: str | None = None,
     ) -> BufferPolicy:
         """
         Get buffer policy for a segment + demand tier combination.
@@ -122,6 +125,12 @@ class BufferEngineV2:
             min_weeks = max(0, int(min_weeks * reduction))
             max_weeks = max(0, int(max_weeks * reduction))
             eo_penalty = self.thresholds.transition_buffer_reduction_pct
+
+        # Apply fungibility reduction for minor-gen substitutions
+        if substitution_type == "minor_gen":
+            reduction = 1 - self.FUNGIBILITY_REDUCTION_PCT
+            min_weeks = max(0, int(min_weeks * reduction))
+            max_weeks = max(0, int(max_weeks * reduction))
         
         # Apply E&O penalty for high-risk segments
         if has_high_eo and segment in ("B1", "B3", "N1", "N3"):
@@ -181,6 +190,7 @@ class BufferEngineV2:
                 demand_tier=demand_tier,
                 has_transition_tag="transition_active" in overlay_tags,
                 has_high_eo=row.get("is_high_eo", False),
+                substitution_type=row.get("substitution_type"),
             )
             
             # Get weekly demand for this item
