@@ -458,3 +458,135 @@ Add quick-select buttons for baseline/favorable/stressed scenarios that use the 
 - [ ] Scenario page offers baseline/favorable/stressed quick-select buttons
 - [ ] Fungibility factor computed for items with generation data
 - [ ] Build-ahead sensitivity computed (or defaults to False if no historical data)
+
+### Data & UI Fixes (Phase 4)
+- [x] Synthetic data uses current dates (today ± weeks)
+- [x] Multiple scenarios generated (baseline, optimistic, constrained)
+- [x] Stranding conditions created (high aging 120+ days, oversupply)
+- [x] All three demand tiers present (committed, likely, exploratory)
+- [x] Active lifecycle transitions with H100/H200/B100 generations
+- [x] demand_plan table generated alongside deployment_plan
+
+### Upload & Export Features (Phase 5)
+- [x] CSV export routes at `/export/csv/<type>` for 6 report types
+- [x] Upload route at `/upload` with file validation
+- [x] Upload page with drag-and-drop UI
+- [x] Navigation link for upload page
+- [x] Column mapping reference displayed on upload page
+
+---
+
+## Phase 4: Data & UI Fixes
+
+### 4.1 Fix Synthetic Data Generator
+
+#### [MODIFY] [synthetic_data_generator.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/src/bufferlab_deploy/synthetic_data_generator.py)
+
+Updates:
+- Use `date.today()` as base, generate weeks from -2 to +12 weeks
+- Sites named SITE-A, SITE-B (not SITE-01)
+- Generate 3 scenarios: baseline, optimistic, constrained
+- Add demand_plan table alongside deployment_plan
+- Create stranding conditions: items with 120+ aging_days and oversupply
+- Lifecycle transitions: active (H100), planned (H200), future (B100)
+- All three demand tiers distributed across square sets
+
+---
+
+### 4.2 Regenerate Data
+
+```bash
+python -m src.bufferlab_deploy.synthetic_data_generator
+```
+
+Output confirms:
+- 10 square sets
+- 45 items
+- 480 deployment records
+- 480 site readiness records (3 scenarios)
+- 45 lifecycle records
+
+---
+
+## Phase 5: Upload & Export Features
+
+### 5.1 CSV Export Routes
+
+#### [MODIFY] [app.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/app.py)
+
+New route `/export/csv/<report_type>` supporting:
+
+| Report Type | Engine Used |
+|-------------|-------------|
+| buffers | BufferEngineV2 |
+| blockers | BlockerEngine |
+| stranded | StrandedEngine |
+| convergence | SquareSetEngine |
+| segments | SegmentationEngine |
+| pegging | PeggingEngine |
+
+---
+
+### 5.2 Upload Route
+
+#### [MODIFY] [app.py](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/app.py)
+
+New route `/upload`:
+- GET: Renders upload form with table list
+- POST: Processes file upload via `ClientDataPreprocessor`
+- Supports CSV, Excel, Parquet files
+- Auto-reloads tables after successful upload
+
+---
+
+### 5.3 Upload Template
+
+#### [NEW] [templates/upload.html](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/templates/upload.html)
+
+Features:
+- Drag-and-drop file upload zone
+- Table name selection dropdown
+- Column mapping reference table
+- Real-time upload progress and results
+- Success/error feedback
+
+---
+
+### 5.4 Navigation Update
+
+#### [MODIFY] [templates/base.html](file:///c:/Users/ely.x.colon/OneDrive%20-%20Accenture/Desktop/app2_deployment_kit_sim/templates/base.html)
+
+Added Upload link to navigation between Settings and Diagnostics.
+
+---
+
+## Execution Order Update
+
+### Week 4: Phase 4 (Data & UI Fixes)
+11. Update synthetic_data_generator.py with current dates
+12. Add multiple scenarios and stranding conditions
+13. Regenerate synthetic data
+14. Verify all views display data
+
+### Week 4: Phase 5 (Upload & Export)
+15. Add CSV export routes to app.py
+16. Create upload route and template
+17. Add navigation link
+18. Test upload with sample CSV files
+
+---
+
+## Files Summary Update
+
+### New Files (Phase 4-5)
+| File | Purpose |
+|------|---------|
+| `templates/upload.html` | Web UI for data file upload |
+
+### Modified Files (Phase 4-5)
+| File | Changes |
+|------|---------|
+| `synthetic_data_generator.py` | Current dates, 3 scenarios, stranding, demand_plan |
+| `app.py` | CSV export routes, upload route |
+| `templates/base.html` | Upload nav link |
+

@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Data{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Upload Data</h1>
+        <p class="page-subtitle">Upload CSV, Excel, or Parquet files to update tables</p>
+    </div>
+</div>
+
+<div class="grid grid-2">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Upload File</h3>
+            <div class="card-icon">
+                <i class="fas fa-upload"></i>
+            </div>
+        </div>
+        
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="filter-group" style="margin-bottom: 1.5rem;">
+                <label class="filter-label">Target Table</label>
+                <select name="table_name" id="tableSelect" class="select-input" style="width: 100%;">
+                    {% for table in tables %}
+                    <option value="{{ table }}">{{ table }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="upload-zone" id="dropZone">
+                <div class="upload-icon">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <p class="upload-text">Drag & drop file here or click to browse</p>
+                <p class="upload-hint">Supports: CSV, Excel (.xlsx), Parquet</p>
+                <input type="file" name="file" id="fileInput" accept=".csv,.xlsx,.xls,.parquet,.pq" hidden>
+            </div>
+            
+            <div id="fileInfo" class="file-info" style="display: none;">
+                <i class="fas fa-file"></i>
+                <span id="fileName"></span>
+                <button type="button" class="btn-clear" onclick="clearFile()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 1.5rem;">
+                <i class="fas fa-upload"></i> Upload & Process
+            </button>
+        </form>
+        
+        <div id="uploadResult" style="margin-top: 1.5rem; display: none;"></div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Column Mapping Info</h3>
+            <div class="card-icon">
+                <i class="fas fa-columns"></i>
+            </div>
+        </div>
+        
+        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+            Files are automatically mapped to expected column names. Common aliases are supported:
+        </p>
+        
+        <div class="mapping-table">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Expected Column</th>
+                        <th>Accepted Aliases</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>kit_id</td>
+                        <td>square_set_id, deployment_id, build_id</td>
+                    </tr>
+                    <tr>
+                        <td>kits_planned</td>
+                        <td>square_sets_planned, quantity, qty</td>
+                    </tr>
+                    <tr>
+                        <td>site_id</td>
+                        <td>location, site, dc_id</td>
+                    </tr>
+                    <tr>
+                        <td>week</td>
+                        <td>plan_week, target_week, date</td>
+                    </tr>
+                    <tr>
+                        <td>item_id</td>
+                        <td>part_number, sku, component_id</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <p style="color: var(--text-secondary); margin-top: 1rem; font-size: 0.85rem;">
+            See <code>configs/column_mapping.yml</code> for full mapping reference.
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .upload-zone {
+        border: 2px dashed var(--border-subtle);
+        border-radius: 12px;
+        padding: 3rem 2rem;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .upload-zone:hover,
+    .upload-zone.dragover {
+        border-color: var(--accent-purple);
+        background: rgba(161, 0, 255, 0.05);
+    }
+    
+    .upload-icon {
+        font-size: 3rem;
+        color: var(--accent-purple);
+        margin-bottom: 1rem;
+    }
+    
+    .upload-text {
+        font-size: 1.1rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .upload-hint {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+    
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 1rem;
+        background: var(--bg-tertiary);
+        border-radius: 8px;
+        margin-top: 1rem;
+    }
+    
+    .file-info i {
+        color: var(--accent-purple);
+    }
+    
+    .btn-clear {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+    
+    .btn-clear:hover {
+        color: var(--error);
+    }
+    
+    .result-success {
+        background: rgba(0, 210, 106, 0.1);
+        border: 1px solid var(--success);
+        border-radius: 8px;
+        padding: 1rem;
+        color: var(--success);
+    }
+    
+    .result-error {
+        background: rgba(255, 51, 102, 0.1);
+        border: 1px solid var(--error);
+        border-radius: 8px;
+        padding: 1rem;
+        color: var(--error);
+    }
+    
+    .mapping-table {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadResult = document.getElementById('uploadResult');
+    
+    // Click to browse
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    // Drag and drop
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            fileInput.files = files;
+            showFileInfo(files[0]);
+        }
+    });
+    
+    // File selected
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            showFileInfo(fileInput.files[0]);
+        }
+    });
+    
+    function showFileInfo(file) {
+        fileName.textContent = file.name;
+        fileInfo.style.display = 'flex';
+        dropZone.style.display = 'none';
+    }
+    
+    function clearFile() {
+        fileInput.value = '';
+        fileInfo.style.display = 'none';
+        dropZone.style.display = 'block';
+        uploadResult.style.display = 'none';
+    }
+    
+    // Form submit
+    uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = new FormData(uploadForm);
+        
+        uploadResult.style.display = 'block';
+        uploadResult.innerHTML = '<div class="loading-spinner"></div>';
+        
+        try {
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                uploadResult.innerHTML = `
+                    <div class="result-success">
+                        <i class="fas fa-check-circle"></i>
+                        ${data.message || 'Upload successful!'}
+                    </div>
+                `;
+                showToast('Data uploaded successfully', 'success');
+            } else {
+                let errorHtml = `<div class="result-error">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <strong>Upload failed</strong>`;
+                
+                if (data.error) {
+                    errorHtml += `<p>${data.error}</p>`;
+                }
+                if (data.errors && data.errors.length > 0) {
+                    errorHtml += '<ul>';
+                    data.errors.forEach(err => {
+                        errorHtml += `<li>${err}</li>`;
+                    });
+                    errorHtml += '</ul>';
+                }
+                errorHtml += '</div>';
+                uploadResult.innerHTML = errorHtml;
+            }
+        } catch (err) {
+            uploadResult.innerHTML = `
+                <div class="result-error">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Error: ${err.message}
+                </div>
+            `;
+        }
+    });
+</script>
+{% endblock %}

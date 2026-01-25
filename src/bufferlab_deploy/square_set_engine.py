@@ -339,6 +339,11 @@ class SquareSetEngine:
         except Exception as e:
             print(f"Error in explode_square_sets: {e}")
             return pl.DataFrame()
+
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
         
         return result
 
@@ -617,6 +622,11 @@ class SquareSetEngine:
             .sort(["week", "site_id", "square_set_id"])
         )
 
+        if len(summary) > 0 and "week" in summary.columns:
+            summary = summary.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         # Power readiness (optional)
         if self.loader.loaded_tables.get("site_readiness"):
             sr_cols = set(self.loader.table_stats.get("site_readiness", {}).get("columns", []))
@@ -632,6 +642,10 @@ class SquareSetEngine:
                         FROM site_readiness
                         WHERE power_ready_mw IS NOT NULL
                     """)
+                    if len(power_ready) > 0 and "week" in power_ready.columns:
+                        power_ready = power_ready.with_columns(
+                            pl.col("week").cast(pl.Date, strict=False)
+                        )
 
                     summary = summary.join(power_req, on="square_set_id", how="left").join(
                         power_ready,

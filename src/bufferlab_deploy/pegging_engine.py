@@ -88,10 +88,10 @@ class PeggingEngine:
                 availability,
                 remaining_inv=remaining_inv,
             )
-            results.append(tier_results)
+            results.append(self._normalize_result_types(tier_results))
 
         if len(blocked_results) > 0:
-            results.append(blocked_results)
+            results.append(self._normalize_result_types(blocked_results))
 
         if not results:
             return pl.DataFrame()
@@ -189,7 +189,9 @@ class PeggingEngine:
             
             # Run allocation for this tier with current remaining inventory
             tier_result, _ = self._greedy_allocate(tier_reqs, remaining_availability)
+            tier_result = self._normalize_result_types(tier_result)
             blocked_tier = blocked_results.filter(pl.col("demand_tier") == tier)
+            blocked_tier = self._normalize_result_types(blocked_tier)
             if len(blocked_tier) > 0:
                 tier_results[tier] = pl.concat([tier_result, blocked_tier])
             else:
@@ -418,6 +420,30 @@ class PeggingEngine:
             pass  # Convergence data not available
         
         return stranded
+
+    def _normalize_result_types(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Ensure consistent dtypes before concatenation.
+        """
+        if df is None or len(df) == 0:
+            return df
+
+        exprs = []
+        columns = set(df.columns)
+        if "week" in columns:
+            exprs.append(pl.col("week").cast(pl.Date, strict=False))
+        for col in [
+            "priority",
+            "deployable_sets",
+            "buildable_sets",
+            "blocked_sets",
+            "num_blocking_items",
+        ]:
+            if col in columns:
+                exprs.append(pl.col(col).cast(pl.Int64, strict=False))
+        if exprs:
+            df = df.with_columns(exprs)
+        return df
     
     def _greedy_allocate(
         self,
@@ -517,7 +543,13 @@ class PeggingEngine:
                 'blocking_items': str(blocking_items[:3]) if blocking_items else '',
             })
 
-        return pl.DataFrame(results), remaining_inv
+        result_df = pl.DataFrame(results)
+        if len(result_df) > 0 and "week" in result_df.columns:
+            result_df = result_df.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
+        return result_df, remaining_inv
     
     def get_buildability_summary(self, scenario_id: str | None = None) -> pl.DataFrame:
         """

@@ -1484,6 +1484,120 @@ def export_buffer_analysis():
 
 
 # =============================================================================
+# CSV Export Routes
+# =============================================================================
+
+@app.route("/export/csv/<report_type>")
+def export_csv(report_type: str):
+    """Export analysis data as CSV."""
+    from flask import Response
+    import io
+    
+    loader = AppState.loader
+    if not loader:
+        return "No data loaded", 400
+    
+    scenario_id = AppState.current_scenario or get_config().analysis.default_scenario
+    df = None
+    
+    try:
+        if report_type == "buffers":
+            from bufferlab_deploy.buffer_engine_v2 import BufferEngineV2
+            buffer_engine = BufferEngineV2(loader)
+            df = buffer_engine.calculate_item_buffers("committed")
+        elif report_type == "blockers":
+            blocker_engine = BlockerEngine(loader)
+            df = blocker_engine.get_blocker_attribution(scenario_id)
+        elif report_type == "stranded":
+            stranded_engine = StrandedEngine(loader)
+            df = stranded_engine.get_stranded_inventory(scenario_id)
+        elif report_type == "convergence":
+            ss_engine = SquareSetEngine(loader)
+            df = ss_engine.get_convergence_summary(scenario_id)
+        elif report_type == "segments":
+            seg_engine = SegmentationEngine(loader)
+            df = seg_engine.get_full_segmentation()
+        elif report_type == "pegging":
+            pegging_engine = PeggingEngine(loader)
+            df = pegging_engine.run_pegging(scenario_id)
+        else:
+            return f"Unknown report type: {report_type}", 400
+        
+        if df is None or len(df) == 0:
+            return f"No data available for {report_type}", 404
+        
+        # Convert to CSV
+        csv_buffer = io.StringIO()
+        df.write_csv(csv_buffer)
+        
+        return Response(
+            csv_buffer.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={report_type}_{datetime.now().strftime("%Y%m%d")}.csv'}
+        )
+    except Exception as e:
+        return f"Error generating {report_type}: {str(e)}", 500
+
+
+# =============================================================================
+# Upload Route
+# =============================================================================
+
+@app.route("/upload", methods=["GET", "POST"])
+def upload_data():
+    """Upload data files via web UI."""
+    from bufferlab_deploy.duckdb_loader import REQUIRED_TABLES, OPTIONAL_TABLES
+    
+    if request.method == "GET":
+        all_tables = REQUIRED_TABLES + OPTIONAL_TABLES
+        return render_template("upload.html", 
+                               tables=all_tables,
+                               stats=AppState.get_stats())
+    
+    # Handle file upload
+    file = request.files.get("file")
+    table_name = request.form.get("table_name")
+    
+    if not file or not table_name:
+        return jsonify({"success": False, "error": "Missing file or table name"})
+    
+    try:
+        from pathlib import Path
+        import tempfile
+        
+        # Save uploaded file temporarily
+        ext = Path(file.filename).suffix.lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+        
+        # Use ClientDataPreprocessor to validate and convert
+        from preprocess_client_data import ClientDataPreprocessor
+        preprocessor = ClientDataPreprocessor(output_dir=str(get_config().gold_path))
+        result = preprocessor.process_file(tmp_path, table_name)
+        
+        # Clean up temp file
+        Path(tmp_path).unlink(missing_ok=True)
+        
+        if result.success:
+            # Reload tables
+            AppState.loader.load_all_tables()
+            return jsonify({
+                "success": True, 
+                "rows": result.row_count,
+                "message": f"Successfully loaded {result.row_count} rows to {table_name}"
+            })
+        else:
+            return jsonify({
+                "success": False, 
+                "errors": result.errors,
+                "warnings": result.warnings
+            })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+# =============================================================================
 # Startup
 # =============================================================================
 
@@ -1513,3 +1627,4 @@ if __name__ == "__main__":
     print("=" * 60 + "\n")
     
     app.run(debug=True, port=5001)
+
