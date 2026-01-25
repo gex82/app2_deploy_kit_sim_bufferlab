@@ -26,6 +26,16 @@ python preprocess_client_data.py --input <path> --table <table_name>
 
 Inputs are mapped via `configs/column_mapping.yml` and written to `data/gold/`.
 
+## Web Upload
+Alternatively, upload files directly through the web UI at `/upload`. Supports CSV, Excel, and Parquet files with automatic column mapping.
+
+## Regenerate Synthetic Data
+To regenerate sample data for testing:
+```bash
+python -m src.bufferlab_deploy.synthetic_data_generator
+```
+This creates 10 square sets, 45 items, and 3 scenarios (baseline/optimistic/constrained).
+
 ## Data Inputs (App 1 Contract)
 App 2 reads App 1 gold outputs from `data/gold/*.parquet`. App 2 does no cleaning beyond filtering and joins.
 
@@ -59,14 +69,33 @@ Key settings:
 - `buffer_policy`: heuristic buffer targets and risk thresholds.
 
 ## UI Pages
-- Overview: KPIs + completion and blocked trends
-- Square-Set Readiness: planned vs deployable vs buildable + week drilldown
-- Priority & Pegging: allocation by priority buckets and square-set outcomes
-- Long Poles: blocker Pareto, root causes, fix recommendations
-- Stranded Inventory: units and $ at risk, blocker context
-- Scenario Compare: side-by-side scenario deltas
-- Buffer Targets: v1 policy-based recommendations (v2 tier-aware engine used in exports)
-- Diagnostics: data contract checks and assumptions
+- **Overview**: KPIs + completion and blocked trends
+- **Square-Set Readiness**: planned vs deployable vs buildable + week drilldown
+- **Priority & Pegging**: allocation by priority buckets and square-set outcomes
+- **Blockers**: blocker Pareto, root causes, fix recommendations
+- **Stranded Inventory**: units and $ at risk, blocker context
+- **Scenarios**: side-by-side scenario deltas with quick-select templates (baseline/favorable/stressed)
+- **Convergence**: domain-level convergence tracking by square set
+- **Segments**: item segmentation (B1-B4, N1-N4) with overlay tags
+- **Buffers**: v1 policy-based recommendations (v2 tier-aware engine used in exports)
+- **Engineering Insights**: GPU generations, active transitions (LTB/EOL), substitution paths
+- **Settings**: configurable thresholds for segmentation and buffer policy
+- **Upload**: drag-and-drop file upload with column mapping
+- **Diagnostics**: data contract checks and assumptions
+
+## Data Export
+### JSON Reports
+- `/export/weekly-status` - Weekly status report
+- `/export/leadership-update` - 4-week leadership update
+- `/export/buffer-analysis` - Buffer analysis with E&O impact
+
+### CSV Downloads
+- `/export/csv/buffers` - Item-level buffer targets
+- `/export/csv/blockers` - Blocker attribution
+- `/export/csv/stranded` - Stranded inventory
+- `/export/csv/convergence` - Convergence summary
+- `/export/csv/segments` - Item segmentation
+- `/export/csv/pegging` - Pegging results
 
 ## Notes on Logic
 - Netting ledger prevents double counting across weeks.
