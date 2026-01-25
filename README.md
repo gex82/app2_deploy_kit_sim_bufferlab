@@ -55,6 +55,8 @@ Optional tables (used if present):
 - `substitution_map`
 - `square_set_master`
 
+Schema note: canonical columns are `kit_id` and `kits_planned` in `deployment_plan`. Uploads accept `square_set_id` and `square_sets_planned` (and other aliases) via `configs/column_mapping.yml`.
+
 If any contract check fails, App 2 shows a Data Contract Error page with remediation guidance pointing back to App 1.
 
 ## Configuration
