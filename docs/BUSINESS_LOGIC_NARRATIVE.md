@@ -18,9 +18,10 @@ BufferLab shifts the focus from counting individual bricks (items) to counting c
 *   **Mapping**: It assumes 1 Square Set = 1 IT Rack Kit + 1 Callan (Power) Kit + 1 MOR (Network) Kit.
 *   **Convergence Check**:
     ```python
-    SquareSet_Status = (IT_Rack_Ready AND Callan_Ready AND MOR_Ready)
+    SquareSet_Status = (IT_Rack_Ready AND Callan_Ready AND MOR_Ready AND Power_Ready)
     ```
-    If *any* domain is not ready based on on-hand availability, the entire Square Set is marked **"Not Ready"**. If `power_ready_mw` is provided, it adds an additional power gate.
+    *   **The Hardware Gate**: A square set is only "hardware ready" if all three domains (IT, Callan, MOR) have zero shortages for blocking components.
+    *   **The Power Gate**: Even if all hardware is on-site, the set is blocked if the `site_readiness` table shows insufficient `power_ready_mw` (Megawatts) to support the power requirement defined in `square_set_master`.
 
 ---
 
@@ -28,14 +29,14 @@ BufferLab shifts the focus from counting individual bricks (items) to counting c
 
 ### The Business Narrative
 We start with a high-level plan: "Deploy 50 Square Sets in Phoenix in Week 12."
-The system "explodes" this plan, meaning it breaks down that high-level goal into a shopping list of thousands of cables, servers, and switches required to make it happen.
+The system "explodes" this plan, breaking it down into a list of required hardware (BOMs) AND a list of required infrastructure (Power/MW) from the **Site Readiness** schedule.
 
 ### Under the Hood (Algorithm)
-*   **Input**: `deployment_plan` table (Site, Week, Kit ID, Quantity).
+*   **Input**: `deployment_plan` table (Hardware needs) and `site_readiness` table (Infrastructure availability).
 *   **Process**:
-    1.  Join Plan with `bom_kit` (Bill of Materials).
-    2.  Multiply `Planned_Qty` * `Qty_Per_Kit` for every component.
-    3.  Key Output: A massive list of `Required_Qty` for every `Item_ID` by `Site` and `Week`.
+    1.  Join Plan with `bom_kit` to get hardware needs.
+    2.  Check `site_readiness` for `power_ready_mw`.
+    3.  Key Output: A total view of both "What we need to build" and "Does the site have the power to turn it on?"
 
 ---
 
@@ -54,8 +55,8 @@ We assign each part a score from **B1 (Critical)** to **N4 (Low Priority)**.
 *   **Engine**: `SegmentationEngine`
 *   **Classification Logic (MECE)**:
     1.  **Blocker?** `kit_criticality == 'blocking'` (NULL defaults to blocking).
-    2.  **Constrained?** `allocation_flag` is truthy OR avg(confidence_score/confidence_weight) < 70% OR `lead_time_p95 > 45 days`.
-    3.  **High E&O?** `unit_cost > $5k` (or high relative cost when enabled) AND `days_to_risk < 90`.
+    2.  **Constrained?** `allocation_flag` is truthy OR `avg(confidence_score) < 70%` OR `lead_time_p95 > 45 days`.
+    3.  **High E&O?** `unit_cost > $5k` (or high relative cost) AND `days_to_risk < 90`.
 *   **Result**: 8 mutually exclusive segments (B1-B4, N1-N4).
 
 ---
@@ -86,6 +87,20 @@ How much extra inventory should we keep "just in case"?
 
 ---
 
+## 4.5 Fungibility: The "Swap" Logic
+
+### The Business Narrative
+If you run out of 2-meter power cables, but you have thousands of 3-meter cables that work just as well, do you really have a shortage? In the real world, no. 
+BufferLab identifies these "Fungible" items (parts that can be substituted for one another) to prevent unnecessary panic and over-ordering.
+
+### Under the Hood (Algorithm)
+*   **Modeling**: `SegmentationEngine` uses a `substitution_map` and "Compatibility Groups" to tag items as `minor_gen` (easy swap) or `major_gen` (harder swap).
+*   **Strategic Buffer Reduction**: If an item is easily substituted (`minor_gen`), the `BufferEngineV2` **automatically reduces its safety stock target by 15%**. 
+    *   *Logic*: Why store extra "Insurance" for Item A if Item B can cover its shifts?
+*   **Current Limit**: While the system *calculates* the risk based on fungibility, the current `PeggingEngine` requires a manual decision to perform the swap in the physical warehouse (it does not yet "auto-allocate" an alternative part).
+
+---
+
 ## 5. Pegging (Who gets the parts?)
 
 ### The Business Narrative
@@ -109,7 +124,7 @@ BufferLab follows a strict **Ethical Priority (Pegging)**:
     ```
 *   **Algorithm**: Greedy Allocation with Convergence Gating.
     1.  **Sort Demand**: By Tier (Committed > Likely > Exploratory) then by Priority Score.
-    2.  **Convergence Gate**: Before allocating *anything*, check if the Square Set is even buildable based on on-hand readiness (and optional power readiness). If any domain is not ready, don't waste *other* scarce parts on a "dead" set.
+    2.  **Convergence Gate**: Before allocating *anything*, check if the Square Set is even buildable based on hardware readiness AND power readiness. If any domain or power is missing, don't waste *other* scarce parts on a "dead" set.
     3.  **Allocate**: Iterate through sorted demand. Deduct from ledger.
     4.  **Result**: `Buildable_Sets` vs `Blocked_Sets`.
 
@@ -120,26 +135,26 @@ BufferLab follows a strict **Ethical Priority (Pegging)**:
 ### The Business Narrative
 Finally, the system tells us the bad news.
 *   **Blockers**: "You are missing 5 Switches. This is blocking 20 Square Sets."
-*   **Stranded Capital**: "Because those switches are missing, the blocking items tied to those sets remain stranded (capital at risk)."
+*   **Stranded Capital**: "Because those switches are missing, the other components tied to those sets (like servers) remain **stranded** (paid for but unusable)."
 
 This is the "Money Shot." It tells executives exactly where to focus to unlock value.
 
 ### Under the Hood (Algorithm)
 *   **Stranded Calculation**:
     ```python
-    Stranded_Value = Sum(Closing_Balance * Unit_Cost) for blocking items in blocked/partial-ready sets
+    Stranded_Value = Sum(Closing_Balance * Unit_Cost) for items tied to blocked sets
     ```
-    *Logic*: Uses netting-ledger closing balances and focuses on blocking items tied to blocked or partial-ready square sets.
+    *Logic*: Uses netting-ledger closing balances for items assigned to square sets that failed the Convergence Gate.
 *   **Root Cause**: Identifies the specific `item_id` that drove the Square Set status to `False`.
 
 ---
 
 ## Summary Flowchart
 
-1.  **Load Data** (Plans, BOMs, Inventory)
-2.  **Explode** → Create item-level shopping list.
-3.  **Segment** → Tag every item with importance (B1-N4).
-4.  **Buffer** → Calculate safety stock targets based on risk.
-5.  **Allocated (Pegging)** → Distribute inventory to highest priority first.
-6.  **Converge** → Check if IT + Power + Network are all present.
-7.  **Report** → Show what's ready, what's blocked, and the cost of the delay.
+1.  **Load Data**: Hardware Plans (Deployment) + Infrastructure Availability (Site Readiness).
+2.  **Explode**: Create item-level shopping list + MW power targets.
+3.  **Segment**: Tag every item with importance and risk (B1-N4).
+4.  **Buffer**: Calculate safety stock targets based on segment and demand tier.
+5.  **Allocated (Pegging)**: Distribute inventory to highest priority first.
+6.  **Converge**: Check if IT + Power + Network hardware AND site power (MW) are all present.
+7.  **Report**: Show what's ready, what's blocked, and the cost of the delay (Stranded Capital).
