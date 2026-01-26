@@ -70,7 +70,7 @@
 
 ```
 app2_deployment_kit_sim/
-├── app.py                          # Flask application entry point (1631 lines)
+├── app.py                          # Flask application entry point
 ├── requirements.txt                # Python dependencies
 ├── pyproject.toml                  # Project metadata
 ├── preprocess_client_data.py       # Client data import utility

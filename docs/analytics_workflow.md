@@ -53,7 +53,7 @@ sequenceDiagram
     
     UI->>SegEngine: Classify Item Portfolio
     SegEngine->>SegEngine: Compute MECE Segments (B1-B4, N1-N4)
-    SegEngine->>SegEngine: Apply Overlay Tags (Transition, E&O)
+    SegEngine->>SegEngine: Apply Overlay Tags (Transition, Shared, Build-Ahead)
     Note right of SegEngine: Risk-profiles every single part
 
     %% Step 3: Strategy
@@ -65,11 +65,11 @@ sequenceDiagram
 
     %% Step 4: Simulation
     Note over ScenarioEng, Pegging: 4. Verification Simulation
-    User->>UI: Select Scenario (e.g., "Committed Only")
+    User->>UI: Select Scenario (e.g., baseline vs stressed)
     UI->>ScenarioEng: Run Simulation
     ScenarioEng->>Pegging: Run Tiered Netting
     Pegging->>Pegging: Commit Supply to Committed Demand first
-    Pegging->>Pegging: Allocate Remaining to Likely/Upside
+    Pegging->>Pegging: Allocate Remaining to Likely/Exploratory
     
     ScenarioEng->>SqEngine: Check Convergence
     SqEngine->>SqEngine: Can we build the full Square Set?
@@ -82,7 +82,7 @@ sequenceDiagram
     Note right of User: • Completion Rate %<br/>• Top Blockers<br/>• Stranded Capital<br/>• E&O Risks
     
     User->>UI: Export Leadership Update
-    UI-->>User: Download JSON/Excel Report
+    UI-->>User: Download JSON report
 ```
 
 ---
@@ -107,20 +107,20 @@ Instead of treating all parts equally, the **Segmentation Engine** classifies ev
 The **Buffer Engine v2** moves away from static "one size fits all" safety stock.
 *   **Tiered Posture**:
     *   **Committed Demand**: System authorizes full buffer coverage to guarantee delivery.
-    *   **Likely/Upside**: System strictures inventory, capping it at minimum levels or zero (commitments only, no stock).
+    *   **Likely/Exploratory**: System strictures inventory, capping it at minimum levels or zero (commitments only, no stock).
 *   **E&O Penalty**: If an item is flagged as High Risk (High Value + Aging), the engine *automatically reduces* its buffer target.
 *   **Business Value**: Maximizes readiness for committed plans while aggressively minimizing cash tied up in risky or speculative inventory.
 
 ### 4. The Simulation: Tiered Netting & Convergence
 The **Scenario Engine** doesn't just subtract Demand from Supply; it runs a prioritized simulation.
 *   **Tiered Netting**: It "fills" orders for Committed demand first. Only if excess supply exists does it allocate to Likely or Exploratory demand.
-*   **Convergence Gate**: Even if you have the servers, the system will not mark a deployment as "Ready" (Green) unless the Power and Network components are also secured.
+*   **Convergence Gate**: Even if you have the servers, the system will not mark a deployment as "Ready" (Green) unless all domains are ready based on on-hand availability (and optional power readiness).
 *   **Business Value**: Provides a realistic, "clear to build" signal that accounts for real-world constraints, preventing false optimism.
 
 ### 5. Governance & Reporting
 The final layer converts these complex calculations into simple business metrics.
 *   **Completion Rate**: What % of our committed plan can we actually turn on?
 *   **Stranded Capital**: What is the dollar value of inventory sitting idle due to missing cheap parts (blockers)?
-*   **Top Blockers**: Which specific items are holding up the most megawatts of deployment?
+*   **Top Blockers**: Which specific items are holding up the most square sets (largest gap quantities)?
 
 This workflow ensures that every number on the dashboard is backed by rigorous, constraint-aware logic, making BufferLab a true **Decision Support System** rather than just a reporting tool.

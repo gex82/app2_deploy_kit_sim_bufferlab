@@ -43,7 +43,7 @@ BufferLab is a **local-first Flask + DuckDB analytics application** that transfo
 
 ### 2.1 The Square Set
 
-A **Square Set** is the atomic unit of deployment – representing one complete, deployable unit of compute capacity (typically 0.5–1.2 MW).
+A **Square Set** is the atomic unit of deployment - representing one complete, deployable unit of compute capacity (default ~0.5 MW per kit, configurable).
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -261,10 +261,10 @@ Pareto analysis of blocking components:
 
 | Analysis | Description |
 |----------|-------------|
-| **Blocker Pareto** | Top components by # of square sets blocked |
-| **Root Cause** | Why is this item blocking? (Supply, lead time, constraints) |
+| **Blocker Pareto** | Top components by total gap qty/$ (with square_sets_affected) |
+| **Root Cause** | Why is this item blocking? (transfer delay, supply timing, pure shortage) |
 | **Fix Recommendations** | Actionable steps to resolve |
-| **Impact Quantification** | MW of deployment at risk |
+| **Impact Quantification** | Gap qty/$ and affected square sets |
 
 **Use This Page To:**
 - Focus engineering on high-impact items
@@ -276,20 +276,21 @@ Pareto analysis of blocking components:
 ### 5.5 Stranded Inventory Page
 **URL:** `/stranded`
 
-Quantifies capital at risk:
+Quantifies capital at risk (blocking-item view based on ledger balances):
 
 | Metric | Formula |
 |--------|---------|
-| **Stranded Units** | Components allocated to incomplete square sets |
-| **Stranded Value** | Σ(Stranded Qty × Unit Cost) |
+| **Stranded Units** | Closing balance of blocking items tied to blocked or partial-ready sets |
+| **Stranded Value** | Sum(stranded_units * unit_cost) |
 | **Blocking Context** | Which missing items are causing stranding |
 
 **Example:**
-> "You have $2.4M worth of GPU servers sitting idle because $15K of network cables are missing."
+> "You have $2.4M worth of blocking components sitting idle because a dependent domain is not ready."
 
 ---
 
 ### 5.6 Scenarios Page
+
 **URL:** `/scenarios`
 
 Compare "what-if" analyses:
@@ -310,13 +311,14 @@ Compare "what-if" analyses:
 ### 5.7 Convergence Page
 **URL:** `/convergence`
 
-Domain-level breakdown:
+Domain-level breakdown with missing domains:
 
-| Domain | Status | Blocking Items |
-|--------|--------|----------------|
-| IT Rack | ✓ Ready | – |
-| Callan | ✓ Ready | – |
-| MOR | ✗ Blocked | CABLE-001, SWITCH-002 |
+| Domain | Status |
+|--------|--------|
+| IT Rack | Ready |
+| Callan | Ready |
+| MOR | Blocked |
+| Power | Blocked (if power gate active) |
 
 **Use This Page To:**
 - Pinpoint which domain is causing the delay
@@ -343,18 +345,23 @@ Full MECE classification with overlay tags:
 ### 5.9 Buffers Page
 **URL:** `/buffers`
 
-Recommended buffer targets by item:
+Policy-based buffer targets (v1):
 
 | Column | Description |
 |--------|-------------|
-| **Target Weeks** | Recommended coverage in weeks |
-| **Target Qty** | Quantity to hold |
+| **Segment** | B1-B4 or N1-N4 bucket |
+| **Items** | Count of items in the segment |
+| **Min Weeks** | Minimum recommended coverage |
+| **Max Weeks** | Maximum recommended coverage |
 | **Location** | Where to position (integration, regional, site) |
-| **E&O Penalty** | Reduction applied for high-risk items |
+| **Rationale** | Why the policy was selected |
+
+Note: Tiered buffer targets are produced by BufferEngineV2 and used in CSV exports.
 
 ---
 
 ### 5.10 Engineering Insights Page
+
 **URL:** `/engineering`
 
 GPU generation and lifecycle management:

@@ -9,15 +9,15 @@ This document provides a comprehensive, technical explanation of the analytical 
 
 ### Logic & Heuristics
 Unlike traditional planning that tracks individual SKUs (e.g., "Cable A," "Server B"), BufferLab aggregates components into a **Square Set**.
-*   **Definition**: A Square Set is a logical container representing one deployable unit of compute capacity (typically 0.5 - 1.2 MW).
+*   **Definition**: A Square Set is a logical container representing one deployable unit of compute capacity (default ~0.5 MW per kit, configurable).
 *   **Composition**: It is the mandatory convergence of three distinct physical domains:
     1.  **IT Rack Domain**: The compute servers and racks.
     2.  **Callan/HXU Domain**: The specific cooling and power distribution units.
     3.  **MOR/Network Domain**: The network fabric and connectivity modules.
 *   **Aggregation Algorithm**:
-    1.  Ingest `deployment_plan` (contains Site, Week, and Quantities for each Domain Kit).
-    2.  Perform an "Inner Join" logic across the three domains for each (Site, Week) tuple.
-    3.  If a Site/Week has a demand for IT Racks but zero demand for Power/Network, it is flagged as a "Broken Signal" but excluded from the valid Square Set count.
+    1.  Load `deployment_plan` (or `demand_plan` as fallback) plus `square_set_master` (explicit mapping or auto-generated).
+    2.  Map each `kit_id` to a `square_set_id` + domain via `square_set_master`.
+    3.  For each (week, site_id, square_set_id), compute `square_sets_planned` / `deployable_sets` as the MIN across the domain-specific kit plans. Missing domains simply do not contribute to the join; there is no explicit "broken signal" flag.
 
 ---
 
@@ -29,11 +29,11 @@ Unlike traditional planning that tracks individual SKUs (e.g., "Cable A," "Serve
 The system assigns every `item_id` to exactly **one** of 8 base segments (**B1–B4, N1–N4**) using a boolean decision tree:
 
 1.  **Is Blocker?** (Primary Dimension)
-    *   *Logic*: `True` if `kit_criticality == 'blocking'`, else `False`.
+    *   *Logic*: `True` if `kit_criticality == 'blocking'` **or NULL** (defaults to blocking), else `False`.
     *   *Implication*: Blockers stop the production line; Non-blockers do not.
 
 2.  **Is Constrained?** (Supply Dimension)
-    *   *Logic*: `True` if (`allocation_flag == True`) OR (`confidence_score < 0.70`) OR (`lead_time_p95 > 45 days`).
+    *   *Logic*: `True` if (`allocation_flag == True`) OR (`avg(confidence_score/confidence_weight) < 0.70`) OR (`lead_time_p95 > 45 days`).
     *   *Implication*: Constrained items rely on scarce supply; unconstrained items are readily valid.
 
 3.  **Is High E&O?** (Value Dimension)
@@ -48,12 +48,16 @@ The system assigns every `item_id` to exactly **one** of 8 base segments (**B1�
 
 ### B. Overlay Tagging Heuristics
 After base segmentation, items are tagged with non-exclusive attributes:
-*   `transition_active`: `True` if current date is within the item's [LTB Start, EOL Date] window.
+*   `transition_active`: `True` if current date is within the item's `transition_start_date` to `transition_end_date` window.
     *   *Analytical Use*: Triggers buffer reduction to prevent obsolescence.
-*   `shared_component`: `True` if item appears in >1 distinct Kit Types.
+*   `shared_component`: `True` if item appears in >=2 distinct kit types **or** `item_master.shared_flag == True`.
     *   *Analytical Use*: qualifies item for inventory pooling aggregation.
 *   `long_lead_foundation`: `True` if (`lead_time > 60d`) AND (`days_to_risk > 180d`).
     *   *Analytical Use*: Safe candidate for "Build Ahead" (long lead, low obsolescence risk).
+*   `build_ahead_sensitivity`: `True` if historical stranding ratio > 30% or `item_master.build_ahead_flag == True`.
+    *   *Analytical Use*: Discourages building ahead on items with high stranding risk.
+*   `break_glass_exception`: `True` if `item_master.break_glass_exception == True`.
+    *   *Analytical Use*: Manual override for exceptional cases.
 
 ---
 
@@ -105,13 +109,14 @@ The simulation uses a strict priority waterfall to allocate supply ("Pegging"):
 
 ### B. Convergence Gating Logic
 For a Square Set Deployment at (Site S, Week W) to be marked "Deployable":
-1.  **Check Components**: Are 100% of required *Blocker* components available for the IT Rack Kit?
-2.  **Check Components**: Are 100% of required *Blocker* components available for the Callan Kit?
-3.  **Check Components**: Are 100% of required *Blocker* components available for the MOR Kit?
+1.  **Check Components**: For each domain, compare total required (all BOM items) vs available on-hand at the site.
+2.  **Domain Ready**: A domain is ready if `total_available >= total_required`.
+3.  **Power Gate (Optional)**: If `site_readiness.power_ready_mw` exists, require `power_ready_mw >= power_mw_required`.
 4.  **Convergence Gate**:
     $$ \text{Is Ready} = (\text{IT Ready}) \land (\text{Callan Ready}) \land (\text{MOR Ready}) $$
+    If `power_ready_mw` is provided, it is treated as an additional AND gate.
 
-**Crucial Logic**: If IT Rack is ready but Power is missing, the IT Rack allocation is treated as "Stranded" (it physically exists but cannot turn on). It does *not* count toward the Completion Rate.
+**Crucial Logic**: If a domain is not ready, the square set is not deployable and its blocking items can become stranded in the ledger. It does *not* count toward the Completion Rate.
 
 ---
 
@@ -124,11 +129,10 @@ $$ \frac{\text{Sum(Fully Converged Square Sets)}}{\text{Sum(Total Planned Square
 *   *Note*: Partial builds count as 0.
 
 ### B. Stranded Capital ($)
-Sum of the unit cost of all components allocated to Square Sets that **failed** the Convergence Gate.
-$$ \sum (\text{Qty Allocated} \times \text{Unit Cost}) \text{ where } \text{SquareSet.IsReady} == \text{False} $$
-*   *Insight*: This represents effective capital waste.
+Sum of stranded units (from the netting ledger) for **blocking items** tied to blocked or partial-ready square sets.
+$$ \sum (\text{Closing Balance} \times \text{Unit Cost}) \text{ for blocking items in blocked/partial-ready sets} $$
+*   *Insight*: This is a conservative, blocking-item view of stranded value.
 
 ### C. Top Blockers
-Ranked list of `item_id`s sorted by:
-$$ \text{Gap Impact} = \text{Sum(Missing Qty)} \times \text{Count(Impacted Square Sets)} $$
+Ranked list of `item_id`s sorted by total gap quantity (and gap value), with counts of square sets affected.
 *   Identifies the "long poles" in the tent preventing deployment.
