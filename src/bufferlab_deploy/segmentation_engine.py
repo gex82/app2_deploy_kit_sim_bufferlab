@@ -133,16 +133,35 @@ class SegmentationEngine:
             LEFT JOIN lifecycle lc ON im.item_id = lc.item_id
         """)
         
-        # Get lead time if available
+        # Get lead time if available (distribution preferred, history fallback)
         lead_times = pl.DataFrame()
-        if self.loader.loaded_tables.get("lead_time_history"):
-            lead_times = self.loader.query("""
-                SELECT 
-                    item_id,
-                    MAX(lead_time_p95) as lead_time_p95
-                FROM lead_time_history
-                GROUP BY item_id
-            """)
+        lead_time_table = None
+        if self.loader.loaded_tables.get("lead_time_distribution"):
+            lead_time_table = "lead_time_distribution"
+        elif self.loader.loaded_tables.get("lead_time_history"):
+            lead_time_table = "lead_time_history"
+
+        if lead_time_table:
+            columns = set(self.loader.table_stats.get(lead_time_table, {}).get("columns", []))
+            if "lead_time_p95" in columns:
+                expr = "MAX(lead_time_p95) as lead_time_p95"
+            elif "p95" in columns:
+                expr = "MAX(p95) as lead_time_p95"
+            elif "lead_time_days" in columns:
+                expr = "quantile_cont(lead_time_days, 0.95) as lead_time_p95"
+            elif "lead_time_avg" in columns:
+                expr = "AVG(lead_time_avg) as lead_time_p95"
+            else:
+                expr = None
+
+            if expr:
+                lead_times = self.loader.query(f"""
+                    SELECT 
+                        item_id,
+                        {expr}
+                    FROM {lead_time_table}
+                    GROUP BY item_id
+                """)
         
         # Combine dimensions
         items = eo_status
@@ -400,9 +419,13 @@ class SegmentationEngine:
         required_totals = required.group_by("item_id").agg(
             pl.col("total_required").sum().alias("total_required")
         )
-        stranded_totals = stranded.group_by("item_id").agg(
-            pl.col("stranded_units").sum().alias("stranded_units")
+        stranded_totals = pl.DataFrame(
+            schema={"item_id": pl.Utf8, "stranded_units": pl.Float64}
         )
+        if len(stranded) > 0 and "item_id" in stranded.columns:
+            stranded_totals = stranded.group_by("item_id").agg(
+                pl.col("stranded_units").sum().alias("stranded_units")
+            )
 
         combined = required_totals.join(stranded_totals, on="item_id", how="left").with_columns([
             pl.col("stranded_units").fill_null(0),
