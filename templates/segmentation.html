@@ -1,0 +1,561 @@
+{% extends "base.html" %}
+
+{% block title %}Segmentation - BufferLab Deploy{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Item Segmentation</h1>
+    <p class="subtitle">MECE classification: B1-B4 (Blockers) and N1-N4 (Non-blockers)</p>
+</div>
+
+<!-- Segment Summary Cards -->
+<section class="segment-summary">
+    <div class="segment-grid blocker-segments">
+        <h3 class="segment-group-title">Blocker Segments</h3>
+
+        <div class="segment-card b1">
+            <div class="segment-header">
+                <span class="segment-id">B1</span>
+                <span class="segment-count">{{ segment_counts.B1 or 0 }}</span>
+            </div>
+            <p class="segment-criteria">Blocker + Constrained + High E&O</p>
+            <div class="segment-policy">Buffer: 2-3 weeks @ Integration</div>
+        </div>
+
+        <div class="segment-card b2">
+            <div class="segment-header">
+                <span class="segment-id">B2</span>
+                <span class="segment-count">{{ segment_counts.B2 or 0 }}</span>
+            </div>
+            <p class="segment-criteria">Blocker + Constrained + Low E&O</p>
+            <div class="segment-policy">Buffer: 3-4 weeks @ Integration</div>
+        </div>
+
+        <div class="segment-card b3">
+            <div class="segment-header">
+                <span class="segment-id">B3</span>
+                <span class="segment-count">{{ segment_counts.B3 or 0 }}</span>
+            </div>
+            <p class="segment-criteria">Blocker + Unconstrained + High E&O</p>
+            <div class="segment-policy">Buffer: 2-3 weeks @ Regional</div>
+        </div>
+
+        <div class="segment-card b4">
+            <div class="segment-header">
+                <span class="segment-id">B4</span>
+                <span class="segment-count">{{ segment_counts.B4 or 0 }}</span>
+            </div>
+            <p class="segment-criteria">Blocker + Unconstrained + Low E&O</p>
+            <div class="segment-policy">Buffer: 4-6 weeks @ Regional</div>
+        </div>
+    </div>
+
+    <div class="segment-grid nonblocker-segments">
+        <h3 class="segment-group-title">Non-Blocker Segments</h3>
+
+        <div class="segment-card n1">
+            <div class="segment-header">
+                <span class="segment-id">N1</span>
+                <span class="segment-count">{{ segment_counts.N1 or 0 }}</span>
+            </div>
+            <p class="segment-criteria">Non-blocker + Constrained + High E&O</p>
+            <div class="segment-policy">Buffer: 1-2 weeks @ Site</div>
+        </div>
+
+        <div class="segment-card n2">
+            <div class="segment-header">
+                <span class="segment-id">N2</span>
+                <span class="segment-count">{{ segment_counts.N2 or 0 }}</span>
+            </div>
+            <p class="segment-criteria">Non-blocker + Constrained + Low E&O</p>
+            <div class="segment-policy">Buffer: 1-2 weeks @ Site</div>
+        </div>
+
+        <div class="segment-card n3">
+            <div class="segment-header">
+                <span class="segment-id">N3</span>
+                <span class="segment-count">{{ segment_counts.N3 or 0 }}</span>
+            </div>
+            <p class="segment-criteria">Non-blocker + Unconstrained + High E&O</p>
+            <div class="segment-policy">Buffer: 1-2 weeks @ Site</div>
+        </div>
+
+        <div class="segment-card n4">
+            <div class="segment-header">
+                <span class="segment-id">N4</span>
+                <span class="segment-count">{{ segment_counts.N4 or 0 }}</span>
+            </div>
+            <p class="segment-criteria">Non-blocker + Unconstrained + Low E&O</p>
+            <div class="segment-policy">Buffer: 1-2 weeks @ Site</div>
+        </div>
+    </div>
+</section>
+
+<!-- Overlay Tags Summary -->
+<section class="overlay-tags-section">
+    <div class="section-header">
+        <h2>Overlay Tags</h2>
+        <a href="/settings" class="btn-link">Configure Thresholds →</a>
+    </div>
+
+    <div class="tags-grid">
+        <div class="tag-card">
+            <div class="tag-icon transition">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+            </div>
+            <div class="tag-content">
+                <span class="tag-name">transition_active</span>
+                <span class="tag-count">{{ tag_counts.transition_active or 0 }} items</span>
+            </div>
+            <p class="tag-desc">Within LTB/EOL transition window</p>
+        </div>
+
+        <div class="tag-card">
+            <div class="tag-icon shared">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <circle cx="18" cy="5" r="3"></circle>
+                    <circle cx="6" cy="12" r="3"></circle>
+                    <circle cx="18" cy="19" r="3"></circle>
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                </svg>
+            </div>
+            <div class="tag-content">
+                <span class="tag-name">shared_component</span>
+                <span class="tag-count">{{ tag_counts.shared_component or 0 }} items</span>
+            </div>
+            <p class="tag-desc">Used across multiple programs/square sets</p>
+        </div>
+
+        <div class="tag-card">
+            <div class="tag-icon long-lead">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                </svg>
+            </div>
+            <div class="tag-content">
+                <span class="tag-name">long_lead_foundation</span>
+                <span class="tag-count">{{ tag_counts.long_lead_foundation or 0 }} items</span>
+            </div>
+            <p class="tag-desc">Long lead time, low obsolescence risk</p>
+        </div>
+
+        <div class="tag-card">
+            <div class="tag-icon build-ahead">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
+                    </path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+            </div>
+            <div class="tag-content">
+                <span class="tag-name">build_ahead_sensitivity</span>
+                <span class="tag-count">{{ tag_counts.build_ahead_sensitivity or 0 }} items</span>
+            </div>
+            <p class="tag-desc">Historical stranding from non-convergence</p>
+        </div>
+
+        <div class="tag-card">
+            <div class="tag-icon exception">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+            </div>
+            <div class="tag-content">
+                <span class="tag-name">break_glass_exception</span>
+                <span class="tag-count">{{ tag_counts.break_glass_exception or 0 }} items</span>
+            </div>
+            <p class="tag-desc">Manual policy override (temporary)</p>
+        </div>
+    </div>
+</section>
+
+<!-- Segmented Items Table -->
+<section class="items-section">
+    <div class="section-header">
+        <h2>Segmented Items</h2>
+        <div class="filter-controls">
+            <select id="segment-filter" onchange="filterBySegment(this.value)">
+                <option value="">All Segments</option>
+                <option value="B1">B1</option>
+                <option value="B2">B2</option>
+                <option value="B3">B3</option>
+                <option value="B4">B4</option>
+                <option value="N1">N1</option>
+                <option value="N2">N2</option>
+                <option value="N3">N3</option>
+                <option value="N4">N4</option>
+            </select>
+            <select id="tag-filter" onchange="filterByTag(this.value)">
+                <option value="">All Tags</option>
+                <option value="transition_active">transition_active</option>
+                <option value="shared_component">shared_component</option>
+                <option value="long_lead_foundation">long_lead_foundation</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th>Item ID</th>
+                    <th>Category</th>
+                    <th>Segment</th>
+                    <th>Blocker</th>
+                    <th>Constrained</th>
+                    <th>High E&O</th>
+                    <th>Unit Cost</th>
+                    <th>Tags</th>
+                </tr>
+            </thead>
+            <tbody id="items-tbody">
+                {% for item in items[:100] %}
+                <tr data-segment="{{ item.segment }}" data-tags="{{ item.tags | join(',') if item.tags else '' }}">
+                    <td class="item-id">{{ item.item_id }}</td>
+                    <td>{{ item.category or '—' }}</td>
+                    <td><span class="segment-badge {{ item.segment | lower }}">{{ item.segment }}</span></td>
+                    <td>{{ '✓' if item.is_blocker else '—' }}</td>
+                    <td>{{ '✓' if item.is_constrained else '—' }}</td>
+                    <td>{{ '✓' if item.is_high_eo else '—' }}</td>
+                    <td>${{ '{:,.0f}'.format(item.unit_cost) if item.unit_cost else '—' }}</td>
+                    <td class="item-tags">
+                        {% if item.transition_active %}<span class="mini-tag transition">T</span>{% endif %}
+                        {% if item.shared_component %}<span class="mini-tag shared">S</span>{% endif %}
+                        {% if item.long_lead_foundation %}<span class="mini-tag long-lead">L</span>{% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="empty-state">No segmentation data. Load gold data and configure thresholds.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<style>
+    .segment-summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .segment-grid {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+    }
+
+    .segment-group-title {
+        font-size: 1rem;
+        color: var(--text-muted);
+        margin: 0 0 1rem 0;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .blocker-segments .segment-group-title {
+        color: #ef4444;
+    }
+
+    .nonblocker-segments .segment-group-title {
+        color: #22c55e;
+    }
+
+    .segment-card {
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.02);
+        border-left: 3px solid;
+    }
+
+    .segment-card.b1,
+    .segment-card.b2,
+    .segment-card.b3,
+    .segment-card.b4 {
+        border-left-color: #ef4444;
+    }
+
+    .segment-card.n1,
+    .segment-card.n2,
+    .segment-card.n3,
+    .segment-card.n4 {
+        border-left-color: #22c55e;
+    }
+
+    .segment-card:last-child {
+        margin-bottom: 0;
+    }
+
+    .segment-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+
+    .segment-id {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-color);
+    }
+
+    .segment-count {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--primary-color);
+    }
+
+    .segment-criteria {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin: 0 0 0.5rem 0;
+    }
+
+    .segment-policy {
+        font-size: 0.8rem;
+        color: var(--primary-color);
+        background: rgba(161, 0, 255, 0.1);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        display: inline-block;
+    }
+
+    .overlay-tags-section {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .tags-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+    }
+
+    .tag-card {
+        display: flex;
+        flex-direction: column;
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+    }
+
+    .tag-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 0.75rem;
+    }
+
+    .tag-icon.transition {
+        background: rgba(249, 115, 22, 0.2);
+        color: #f97316;
+    }
+
+    .tag-icon.shared {
+        background: rgba(59, 130, 246, 0.2);
+        color: #3b82f6;
+    }
+
+    .tag-icon.long-lead {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .tag-icon.build-ahead {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .tag-icon.exception {
+        background: rgba(161, 0, 255, 0.2);
+        color: #a100ff;
+    }
+
+    .tag-content {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.25rem;
+    }
+
+    .tag-name {
+        font-family: monospace;
+        font-size: 0.85rem;
+        color: var(--text-color);
+    }
+
+    .tag-count {
+        font-size: 0.85rem;
+        color: var(--primary-color);
+        font-weight: 500;
+    }
+
+    .tag-desc {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin: 0;
+    }
+
+    .items-section {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .filter-controls {
+        display: flex;
+        gap: 0.75rem;
+    }
+
+    .filter-controls select {
+        padding: 0.5rem 1rem;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
+        color: var(--text-color);
+        border-radius: 6px;
+    }
+
+    .table-wrapper {
+        overflow-x: auto;
+    }
+
+    .items-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .items-table th,
+    .items-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .items-table th {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .segment-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .segment-badge.b1,
+    .segment-badge.b2,
+    .segment-badge.b3,
+    .segment-badge.b4 {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .segment-badge.n1,
+    .segment-badge.n2,
+    .segment-badge.n3,
+    .segment-badge.n4 {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .mini-tag {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        line-height: 20px;
+        text-align: center;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        margin-right: 0.25rem;
+    }
+
+    .mini-tag.transition {
+        background: rgba(249, 115, 22, 0.3);
+        color: #f97316;
+    }
+
+    .mini-tag.shared {
+        background: rgba(59, 130, 246, 0.3);
+        color: #3b82f6;
+    }
+
+    .mini-tag.long-lead {
+        background: rgba(34, 197, 94, 0.3);
+        color: #22c55e;
+    }
+
+    .btn-link {
+        color: var(--primary-color);
+        text-decoration: none;
+        font-size: 0.9rem;
+    }
+
+    .btn-link:hover {
+        text-decoration: underline;
+    }
+</style>
+
+<script>
+    function filterBySegment(segment) {
+        const rows = document.querySelectorAll('#items-tbody tr');
+        rows.forEach(row => {
+            const rowSegment = row.dataset.segment;
+            if (!segment || rowSegment === segment) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    function filterByTag(tag) {
+        const rows = document.querySelectorAll('#items-tbody tr');
+        rows.forEach(row => {
+            const tags = row.dataset.tags || '';
+            if (!tag || tags.includes(tag)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+</script>
+{% endblock %}

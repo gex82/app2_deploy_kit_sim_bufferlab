@@ -10,31 +10,79 @@
     </div>
 </div>
 
+<div class="template-bar">
+    <div class="template-label">Quick templates (based on Scenario A)</div>
+    <div class="template-buttons">
+        <button class="btn btn-secondary" type="button" onclick="applyTemplate('baseline')">
+            Baseline
+        </button>
+        <button class="btn btn-secondary" type="button" onclick="applyTemplate('favorable')">
+            Favorable
+        </button>
+        <button class="btn btn-secondary" type="button" onclick="applyTemplate('stressed')">
+            Stressed
+        </button>
+    </div>
+</div>
+
 <form class="filters" method="get">
     <div class="filter-group">
         <label class="filter-label">Scenario A</label>
         <select name="scenario_a" class="select-input">
+            {% if template_options %}
+            <optgroup label="Templates">
+                {% for t in template_options %}
+                <option value="template:{{ t }}" {% if ('template:' ~ t) == filters.scenario_a %}selected{% endif %}>
+                    Template: {{ t | title }}
+                </option>
+                {% endfor %}
+            </optgroup>
+            {% endif %}
+            <optgroup label="Scenarios">
             {% for s in scenario_options %}
             <option value="{{ s }}" {% if s == filters.scenario_a %}selected{% endif %}>{{ s }}</option>
             {% endfor %}
+            </optgroup>
         </select>
     </div>
     <div class="filter-group">
         <label class="filter-label">Scenario B</label>
         <select name="scenario_b" class="select-input">
             <option value="">None</option>
+            {% if template_options %}
+            <optgroup label="Templates">
+                {% for t in template_options %}
+                <option value="template:{{ t }}" {% if ('template:' ~ t) == filters.scenario_b %}selected{% endif %}>
+                    Template: {{ t | title }}
+                </option>
+                {% endfor %}
+            </optgroup>
+            {% endif %}
+            <optgroup label="Scenarios">
             {% for s in scenario_options %}
             <option value="{{ s }}" {% if s == filters.scenario_b %}selected{% endif %}>{{ s }}</option>
             {% endfor %}
+            </optgroup>
         </select>
     </div>
     <div class="filter-group">
         <label class="filter-label">Scenario C</label>
         <select name="scenario_c" class="select-input">
             <option value="">None</option>
+            {% if template_options %}
+            <optgroup label="Templates">
+                {% for t in template_options %}
+                <option value="template:{{ t }}" {% if ('template:' ~ t) == filters.scenario_c %}selected{% endif %}>
+                    Template: {{ t | title }}
+                </option>
+                {% endfor %}
+            </optgroup>
+            {% endif %}
+            <optgroup label="Scenarios">
             {% for s in scenario_options %}
             <option value="{{ s }}" {% if s == filters.scenario_c %}selected{% endif %}>{{ s }}</option>
             {% endfor %}
+            </optgroup>
         </select>
     </div>
     <div class="filter-group">
@@ -118,4 +166,49 @@
     </div>
     {% endif %}
 </div>
+
+<style>
+    .template-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .template-label {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+    }
+
+    .template-buttons {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+</style>
+
+<script>
+    function applyTemplate(templateKey) {
+        const form = document.querySelector('form.filters');
+        const value = `template:${templateKey}`;
+        const scenarioB = form.querySelector('select[name="scenario_b"]');
+        const scenarioC = form.querySelector('select[name="scenario_c"]');
+
+        if (scenarioB && !scenarioB.value) {
+            scenarioB.value = value;
+        } else if (scenarioC) {
+            scenarioC.value = value;
+        } else if (scenarioB) {
+            scenarioB.value = value;
+        }
+
+        form.submit();
+    }
+</script>
 {% endblock %}

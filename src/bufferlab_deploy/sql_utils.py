@@ -4,7 +4,10 @@ SQL helpers for dynamic schema handling.
 
 from __future__ import annotations
 
-from bufferlab_deploy.duckdb_loader import DuckDBLoader
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bufferlab_deploy.duckdb_loader import DuckDBLoader
 
 
 def get_plan_table(loader: DuckDBLoader) -> str:

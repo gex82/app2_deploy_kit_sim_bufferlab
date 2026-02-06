@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+
+{% block title %}Engineering Insights - BufferLab Deploy{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Engineering Insights</h1>
+    <p class="subtitle">GPU generations, transition windows, and substitution paths</p>
+</div>
+
+<!-- Generation Timeline -->
+<section class="timeline-section">
+    <div class="section-header">
+        <h2>GPU Generation Timeline</h2>
+    </div>
+
+    <div class="timeline">
+        <div class="timeline-item active">
+            <div class="timeline-marker"></div>
+            <div class="timeline-content">
+                <h3>H100</h3>
+                <span class="timeline-status">Current Production</span>
+                <p>Primary generation for current deployments</p>
+            </div>
+        </div>
+        <div class="timeline-item">
+            <div class="timeline-marker"></div>
+            <div class="timeline-content">
+                <h3>H200</h3>
+                <span class="timeline-status transition">Transition Starting</span>
+                <p>Next generation, ramping up</p>
+            </div>
+        </div>
+        <div class="timeline-item future">
+            <div class="timeline-marker"></div>
+            <div class="timeline-content">
+                <h3>B100</h3>
+                <span class="timeline-status future">Future</span>
+                <p>Planned for future programs</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Transition Windows -->
+<section class="transitions-section">
+    <div class="section-header">
+        <h2>Active Transitions (LTB/EOL)</h2>
+    </div>
+
+    <div class="table-wrapper">
+        <table class="transitions-table">
+            <thead>
+                <tr>
+                    <th>Item ID</th>
+                    <th>Generation</th>
+                    <th>Status</th>
+                    <th>LTB Date</th>
+                    <th>EOL Date</th>
+                    <th>Transition Window</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in transitions %}
+                <tr class="{{ 'eol' if item.status == 'EOL' else 'ltb' if item.status == 'LTB' else '' }}">
+                    <td>{{ item.item_id }}</td>
+                    <td>{{ item.generation or '—' }}</td>
+                    <td>
+                        <span class="status-badge {{ item.status | lower if item.status else 'active' }}">
+                            {{ item.status or 'Active' }}
+                        </span>
+                    </td>
+                    <td>{{ item.ltb_date or '—' }}</td>
+                    <td>{{ item.eol_date or '—' }}</td>
+                    <td>
+                        {% if item.transition_start_date and item.transition_end_date %}
+                        {{ item.transition_start_date }} → {{ item.transition_end_date }}
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="empty-state">
+                        No transition data available. Lifecycle table may not include generation/transition fields.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- Substitution Paths -->
+<section class="substitution-section">
+    <div class="section-header">
+        <h2>Substitution Paths (Fungibility)</h2>
+    </div>
+
+    <div class="substitution-grid">
+        {% for sub in substitutions %}
+        <div class="substitution-card">
+            <div class="sub-header">
+                <span class="from-item">{{ sub.from_item_id }}</span>
+                <span class="arrow">→</span>
+                <span class="to-item">{{ sub.to_item_id }}</span>
+            </div>
+            <div class="sub-meta">
+                <span class="sub-type {{ sub.substitution_type | default('equivalent') }}">
+                    {{ sub.substitution_type | default('equivalent') | replace('_', ' ') | title }}
+                </span>
+                {% if sub.approval_required %}
+                <span class="approval-badge">Approval Required</span>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-substitutions">
+            <p>No substitution paths defined.</p>
+            <p class="help-text">Add a substitution_map table to enable fungibility analysis.</p>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- Compatibility Matrix -->
+<section class="compatibility-section">
+    <div class="section-header">
+        <h2>Generation Compatibility</h2>
+    </div>
+
+    <div class="compatibility-info">
+        <div class="compat-card">
+            <h3>Minor Generation Changes</h3>
+            <p>Components may be fungible with minimal retrofit:</p>
+            <ul>
+                <li>Same form factor</li>
+                <li>Compatible power/thermal</li>
+                <li>Software/firmware update only</li>
+            </ul>
+        </div>
+
+        <div class="compat-card warning">
+            <h3>Major Generation Changes</h3>
+            <p>Components NOT fungible without re-kit:</p>
+            <ul>
+                <li>Different form factor</li>
+                <li>Incompatible power/thermal</li>
+                <li>New infrastructure required</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<style>
+    .timeline-section,
+    .transitions-section,
+    .substitution-section,
+    .compatibility-section {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .section-header {
+        margin-bottom: 1.5rem;
+    }
+
+    .section-header h2 {
+        font-size: 1.25rem;
+        color: var(--text-color);
+        margin: 0;
+    }
+
+    /* Timeline */
+    .timeline {
+        display: flex;
+        gap: 2rem;
+        padding: 1rem 0;
+    }
+
+    .timeline-item {
+        flex: 1;
+        position: relative;
+        padding-left: 2rem;
+    }
+
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        top: 12px;
+        left: 0;
+        right: -2rem;
+        height: 2px;
+        background: var(--border-color);
+    }
+
+    .timeline-item:last-child::before {
+        display: none;
+    }
+
+    .timeline-marker {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--card-bg);
+        border: 3px solid var(--border-color);
+        position: absolute;
+        left: -12px;
+        top: 0;
+        z-index: 1;
+    }
+
+    .timeline-item.active .timeline-marker {
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.2);
+    }
+
+    .timeline-item.future .timeline-marker {
+        border-color: var(--text-muted);
+        border-style: dashed;
+    }
+
+    .timeline-content h3 {
+        font-size: 1.1rem;
+        margin: 0 0 0.25rem 0;
+        color: var(--text-color);
+    }
+
+    .timeline-status {
+        font-size: 0.8rem;
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .timeline-status.transition {
+        background: rgba(249, 115, 22, 0.2);
+        color: #f97316;
+    }
+
+    .timeline-status.future {
+        background: rgba(156, 163, 175, 0.2);
+        color: #9ca3af;
+    }
+
+    .timeline-content p {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin: 0.5rem 0 0;
+    }
+
+    /* Transitions Table */
+    .table-wrapper {
+        overflow-x: auto;
+    }
+
+    .transitions-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .transitions-table th,
+    .transitions-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .transitions-table th {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .transitions-table tr.eol {
+        background: rgba(239, 68, 68, 0.05);
+    }
+
+    .transitions-table tr.ltb {
+        background: rgba(249, 115, 22, 0.05);
+    }
+
+    .status-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+
+    .status-badge.eol {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .status-badge.ltb {
+        background: rgba(249, 115, 22, 0.2);
+        color: #f97316;
+    }
+
+    .status-badge.active {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    /* Substitutions */
+    .substitution-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+    }
+
+    .substitution-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+    }
+
+    .sub-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .from-item,
+    .to-item {
+        font-family: monospace;
+        font-weight: 500;
+        color: var(--text-color);
+    }
+
+    .arrow {
+        color: var(--primary-color);
+        font-size: 1.2rem;
+    }
+
+    .sub-meta {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .sub-type {
+        font-size: 0.75rem;
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+        background: rgba(161, 0, 255, 0.2);
+        color: var(--primary-color);
+    }
+
+    .sub-type.minor_gen {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .sub-type.major_gen {
+        background: rgba(249, 115, 22, 0.2);
+        color: #f97316;
+    }
+
+    .approval-badge {
+        font-size: 0.75rem;
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .empty-substitutions {
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .empty-substitutions p {
+        color: var(--text-muted);
+        margin: 0;
+    }
+
+    .empty-substitutions .help-text {
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+    }
+
+    /* Compatibility */
+    .compatibility-info {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+    }
+
+    .compat-card {
+        background: rgba(34, 197, 94, 0.05);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        border-radius: 8px;
+        padding: 1.5rem;
+    }
+
+    .compat-card.warning {
+        background: rgba(249, 115, 22, 0.05);
+        border-color: rgba(249, 115, 22, 0.3);
+    }
+
+    .compat-card h3 {
+        font-size: 1rem;
+        margin: 0 0 0.75rem 0;
+        color: var(--text-color);
+    }
+
+    .compat-card p {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        margin: 0 0 0.75rem 0;
+    }
+
+    .compat-card ul {
+        margin: 0;
+        padding-left: 1.25rem;
+    }
+
+    .compat-card li {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-bottom: 0.25rem;
+    }
+
+    .empty-state {
+        padding: 2rem;
+        text-align: center;
+        color: var(--text-muted);
+    }
+</style>
+{% endblock %}

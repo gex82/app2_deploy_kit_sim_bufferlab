@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Kit Readiness{% endblock %}
+{% block title %}Square-Set Readiness{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h1 class="page-title">Kit Readiness</h1>
-        <p class="page-subtitle">Planned vs deployable vs buildable kits by site and week</p>
+        <h1 class="page-title">Square-Set Readiness</h1>
+        <p class="page-subtitle">Planned vs deployable vs buildable square sets by site and week</p>
     </div>
     <div>
         <span class="badge badge-purple">{{ scenario_id }}</span>
@@ -23,10 +23,10 @@
         </select>
     </div>
     <div class="filter-group">
-        <label class="filter-label">Kit</label>
-        <select name="kit_id" class="select-input">
-            {% for kit in kits %}
-            <option value="{{ kit }}" {% if kit == filters.kit_id %}selected{% endif %}>{{ kit }}</option>
+        <label class="filter-label">Square Set</label>
+        <select name="square_set_id" class="select-input">
+            {% for square_set in kits %}
+            <option value="{{ square_set }}" {% if square_set == filters.square_set_id %}selected{% endif %}>{{ square_set }}</option>
             {% endfor %}
         </select>
     </div>
@@ -58,8 +58,8 @@
 <div class="grid grid-2" style="margin-bottom: 2rem;">
     <div class="card">
         <div class="card-header">
-            <h3 class="card-title">Kit Readiness Trend</h3>
-            <span class="badge badge-info">Selected Kit</span>
+            <h3 class="card-title">Square-Set Readiness Trend</h3>
+            <span class="badge badge-info">Selected Square Set</span>
         </div>
         <div class="chart-container">
             <canvas id="readinessChart"></canvas>
@@ -84,7 +84,7 @@
                 {% for row in summary_rows %}
                 <tr>
                     <td>
-                        <a href="/readiness?site_id={{ filters.site_id }}&kit_id={{ filters.kit_id }}&week_start={{ filters.week_start }}&week_end={{ filters.week_end }}&detail_week={{ row.week }}"
+                        <a href="/readiness?site_id={{ filters.site_id }}&square_set_id={{ filters.square_set_id }}&week_start={{ filters.week_start }}&week_end={{ filters.week_end }}&detail_week={{ row.week }}"
                             style="color: var(--accent-purple); text-decoration: none;">
                             {{ row.week }}
                         </a>
@@ -118,7 +118,7 @@
     <table class="data-table">
         <thead>
             <tr>
-                <th>Kit</th>
+                <th>Square Set</th>
                 <th>Priority</th>
                 <th>Deployable</th>
                 <th>Buildable</th>
@@ -129,11 +129,11 @@
         <tbody>
             {% for row in detail_rows %}
             <tr>
-                <td>{{ row.kit_id }}</td>
+                <td>{{ row.square_set_id }}</td>
                 <td>{{ row.priority }}</td>
-                <td>{{ row.deployable_kits }}</td>
-                <td>{{ row.buildable_kits }}</td>
-                <td>{{ row.blocked_kits }}</td>
+                <td>{{ row.deployable_sets }}</td>
+                <td>{{ row.buildable_sets }}</td>
+                <td>{{ row.blocked_sets }}</td>
                 <td style="font-size: 0.8rem; color: var(--text-secondary);">{{ row.blocking_items }}</td>
             </tr>
             {% endfor %}

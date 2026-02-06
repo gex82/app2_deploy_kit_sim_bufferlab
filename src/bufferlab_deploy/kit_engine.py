@@ -45,6 +45,8 @@ class KitEngine:
             scenario_id = self.config.analysis.default_scenario
         
         plan_table = get_plan_table(self.loader)
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
         default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
         readiness_expr = get_readiness_capacity_expr(self.loader, default_mw_per_kit)
 
@@ -55,9 +57,10 @@ class KitEngine:
                     site_id,
                     kit_id,
                     kits_planned,
+                    {demand_tier_expr} as demand_tier,
                     COALESCE(priority, {self.config.analysis.pegging.default_priority}) as priority,
                     program_id
-                FROM {plan_table}
+                FROM {plan_table} dp
             ),
             readiness AS (
                 SELECT 
@@ -72,6 +75,7 @@ class KitEngine:
                 d.site_id,
                 d.kit_id,
                 d.kits_planned,
+                d.demand_tier,
                 d.priority,
                 d.program_id,
                 COALESCE(r.readiness_capacity_kits, d.kits_planned) as readiness_capacity,
@@ -80,7 +84,11 @@ class KitEngine:
             LEFT JOIN readiness r ON d.site_id = r.site_id AND d.week = r.week
             ORDER BY d.week, d.site_id, d.priority, d.kit_id
         """)
-        
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         return result
     
     def explode_kits(self, scenario_id: str | None = None) -> pl.DataFrame:
@@ -99,6 +107,8 @@ class KitEngine:
             scenario_id = self.config.analysis.default_scenario
         
         plan_table = get_plan_table(self.loader)
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
         bom_clause = get_bom_effective_clause(self.loader, "d.week", alias="b")
 
         default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
@@ -117,6 +127,7 @@ class KitEngine:
                     dp.week,
                     dp.site_id,
                     dp.kit_id,
+                    {demand_tier_expr} as demand_tier,
                     LEAST(
                         dp.kits_planned,
                         COALESCE(r.readiness_capacity_kits, dp.kits_planned)
@@ -131,6 +142,7 @@ class KitEngine:
                 d.week,
                 d.site_id,
                 d.kit_id,
+                d.demand_tier,
                 b.child_item_id as item_id,
                 CAST(d.deployable_kits * b.qty_per AS DOUBLE) as required_qty,
                 d.priority,
@@ -141,7 +153,11 @@ class KitEngine:
                 AND {bom_clause}
             ORDER BY d.week, d.site_id, d.priority, d.kit_id, b.child_item_id
         """)
-        
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         return result
     
     def get_aggregated_requirements(self, scenario_id: str | None = None) -> pl.DataFrame:
@@ -155,6 +171,8 @@ class KitEngine:
             scenario_id = self.config.analysis.default_scenario
         
         plan_table = get_plan_table(self.loader)
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
         bom_clause = get_bom_effective_clause(self.loader, "d.week", alias="b")
 
         default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
@@ -173,6 +191,7 @@ class KitEngine:
                     dp.week,
                     dp.site_id,
                     dp.kit_id,
+                    {demand_tier_expr} as demand_tier,
                     LEAST(
                         dp.kits_planned,
                         COALESCE(r.readiness_capacity_kits, dp.kits_planned)
@@ -189,6 +208,7 @@ class KitEngine:
                     d.site_id,
                     d.kit_id,
                     d.priority,
+                    d.demand_tier,
                     b.child_item_id as item_id,
                     CAST(d.deployable_kits * b.qty_per AS DOUBLE) as required_qty,
                     COALESCE(b.kit_criticality, 'blocking') as kit_criticality
@@ -201,13 +221,18 @@ class KitEngine:
                 week,
                 site_id,
                 item_id,
+                demand_tier,
                 SUM(required_qty) as total_required,
                 COUNT(DISTINCT kit_id) as num_kits_requiring
             FROM requirements
-            GROUP BY week, site_id, item_id
+            GROUP BY week, site_id, item_id, demand_tier
             ORDER BY week, site_id, total_required DESC
         """)
-        
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         return result
     
     def get_kit_requirements_detail(self, scenario_id: str | None = None) -> pl.DataFrame:
@@ -221,6 +246,8 @@ class KitEngine:
             scenario_id = self.config.analysis.default_scenario
         
         plan_table = get_plan_table(self.loader)
+        plan_columns = set(self.loader.table_stats.get(plan_table, {}).get("columns", []))
+        demand_tier_expr = "dp.demand_tier" if "demand_tier" in plan_columns else "'committed'"
         bom_clause = get_bom_effective_clause(self.loader, "d.week", alias="b")
 
         default_mw_per_kit = float(self.config.mw_per_kit.get("default", 0.5))
@@ -240,6 +267,7 @@ class KitEngine:
                     dp.site_id,
                     dp.kit_id,
                     dp.kits_planned,
+                    {demand_tier_expr} as demand_tier,
                     LEAST(
                         dp.kits_planned,
                         COALESCE(r.readiness_capacity_kits, dp.kits_planned)
@@ -257,6 +285,7 @@ class KitEngine:
                 d.kit_id,
                 d.kits_planned,
                 d.deployable_kits,
+                d.demand_tier,
                 d.priority,
                 d.program_id,
                 b.child_item_id as item_id,
@@ -272,5 +301,9 @@ class KitEngine:
             LEFT JOIN item_master im ON b.child_item_id = im.item_id
             ORDER BY d.week, d.site_id, d.priority, d.kit_id
         """)
-        
+        if len(result) > 0 and "week" in result.columns:
+            result = result.with_columns(
+                pl.col("week").cast(pl.Date, strict=False)
+            )
+
         return result

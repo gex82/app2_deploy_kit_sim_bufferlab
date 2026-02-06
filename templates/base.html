@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}BufferLab{% endblock %} | Deployment & Kit Readiness</title>
+    <title>{% block title %}BufferLab{% endblock %} | Deployment & Square-Set Readiness</title>
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -203,6 +203,39 @@
             margin-top: var(--nav-height);
             min-height: calc(100vh - var(--nav-height));
             padding: 2rem;
+        }
+
+        .error-banner {
+            background: rgba(255, 51, 102, 0.1);
+            border: 1px solid rgba(255, 51, 102, 0.4);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .error-banner-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        .error-banner-header i {
+            color: var(--error);
+        }
+
+        .error-banner-link {
+            margin-left: auto;
+            color: var(--error);
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+
+        .error-banner ul {
+            margin-left: 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
         }
 
         .page-header {
@@ -762,6 +795,12 @@
             color: var(--text-secondary);
             margin-bottom: 1.5rem;
         }
+
+        /* Font Awesome v6 compatibility for v5 `fas` usage */
+        .fas {
+            font-family: "Font Awesome 6 Free";
+            font-weight: 900;
+        }
     </style>
 
     {% block extra_css %}{% endblock %}
@@ -795,8 +834,23 @@
             <a href="/scenarios" class="nav-link {% if request.endpoint == 'scenarios' %}active{% endif %}">
                 <i class="fas fa-layer-group"></i> Scenarios
             </a>
+            <a href="/convergence" class="nav-link {% if request.endpoint == 'convergence' %}active{% endif %}">
+                <i class="fas fa-compress-arrows-alt"></i> Convergence
+            </a>
+            <a href="/segmentation" class="nav-link {% if request.endpoint == 'segmentation' %}active{% endif %}">
+                <i class="fas fa-th-large"></i> Segments
+            </a>
             <a href="/buffers" class="nav-link {% if request.endpoint == 'buffers' %}active{% endif %}">
                 <i class="fas fa-sliders-h"></i> Buffers
+            </a>
+            <a href="/engineering" class="nav-link {% if request.endpoint == 'engineering' %}active{% endif %}">
+                <i class="fas fa-microchip"></i> Engineering
+            </a>
+            <a href="/settings" class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}">
+                <i class="fas fa-cog"></i> Settings
+            </a>
+            <a href="/upload" class="nav-link {% if request.endpoint == 'upload_data' %}active{% endif %}">
+                <i class="fas fa-upload"></i> Upload
             </a>
             <a href="/diagnostics" class="nav-link {% if request.endpoint == 'diagnostics' %}active{% endif %}">
                 <i class="fas fa-stethoscope"></i> Diagnostics
@@ -821,6 +875,20 @@
 
     <!-- Main Content -->
     <main class="main">
+        {% if loader_errors %}
+        <div class="error-banner">
+            <div class="error-banner-header">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>Data Issues Detected</span>
+                <a class="error-banner-link" href="/diagnostics">View Details</a>
+            </div>
+            <ul>
+                {% for error in loader_errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 

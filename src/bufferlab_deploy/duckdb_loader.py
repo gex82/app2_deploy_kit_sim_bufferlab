@@ -6,6 +6,7 @@ Loads all gold tables from App 1 into an in-memory DuckDB database.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ import duckdb
 import polars as pl
 
 from bufferlab_deploy.config import get_config
+from bufferlab_deploy.sql_utils import get_plan_table
 
 
 # Required tables from App 1
@@ -34,6 +36,7 @@ OPTIONAL_TABLES = [
     "lead_time_distribution",
     "lifecycle",
     "substitution_map",
+    "square_set_master",
 ]
 
 
@@ -99,11 +102,13 @@ class DuckDBLoader:
                     
                     columns = conn.execute(f"DESCRIBE {table_name}").fetchall()
                     column_names = [col[0] for col in columns]
+                    column_types = {col[0]: col[1] for col in columns}
                     
                     self.loaded_tables[table_name] = True
                     self.table_stats[table_name] = {
                         "row_count": row_count,
                         "columns": column_names,
+                        "column_types": column_types,
                         "path": str(parquet_path),
                     }
                 except Exception as e:
@@ -167,6 +172,59 @@ class DuckDBLoader:
             if not self.loaded_tables.get(table):
                 missing.append(table)
         return missing
+
+    def get_loader_errors(self) -> "LoaderErrors":
+        """
+        Collect loader errors for UI display.
+        """
+        missing_tables = self.get_missing_required_tables()
+        missing_columns: dict[str, list[str]] = {}
+        type_mismatches: list[str] = []
+
+        try:
+            from bufferlab_deploy.data_contract import REQUIRED_COLUMNS
+        except Exception:
+            REQUIRED_COLUMNS = {}
+
+        plan_table = get_plan_table(self)
+        for table_name, required_cols in REQUIRED_COLUMNS.items():
+            if table_name == "demand_plan" and self.loaded_tables.get("deployment_plan"):
+                continue
+            if table_name == "deployment_plan" and plan_table != "deployment_plan":
+                continue
+            if not self.loaded_tables.get(table_name):
+                continue
+            stats = self.table_stats.get(table_name, {})
+            actual_cols = set(stats.get("columns", []))
+            missing = [col for col in required_cols if col not in actual_cols]
+            if missing:
+                missing_columns[table_name] = missing
+
+        date_columns = {
+            "week",
+            "effective_start_week",
+            "effective_end_week",
+            "promised_date",
+            "promise_date",
+            "promise_week",
+            "as_of_date",
+        }
+        for table_name, stats in self.table_stats.items():
+            column_types = stats.get("column_types", {})
+            for col in date_columns:
+                if col not in column_types:
+                    continue
+                dtype = str(column_types.get(col, "")).upper()
+                if "DATE" not in dtype and "TIMESTAMP" not in dtype:
+                    type_mismatches.append(
+                        f"{table_name}.{col} is {column_types.get(col)}, expected DATE"
+                    )
+
+        return LoaderErrors(
+            missing_tables=missing_tables,
+            missing_columns=missing_columns,
+            type_mismatches=type_mismatches,
+        )
     
     def get_loaded_optional_tables(self) -> list[str]:
         """Get list of optional tables that are loaded."""
@@ -174,6 +232,33 @@ class DuckDBLoader:
             table for table in OPTIONAL_TABLES
             if self.loaded_tables.get(table)
         ]
+
+
+@dataclass
+class LoaderErrors:
+    """User-facing loader error details."""
+    missing_tables: list[str] = field(default_factory=list)
+    missing_columns: dict[str, list[str]] = field(default_factory=dict)
+    type_mismatches: list[str] = field(default_factory=list)
+
+    def get_user_messages(self) -> list[str]:
+        """Return actionable messages for the UI."""
+        messages: list[str] = []
+        if self.missing_tables:
+            messages.append(
+                f"Missing required tables: {', '.join(self.missing_tables)}."
+            )
+        for table, cols in self.missing_columns.items():
+            messages.append(
+                f"Missing columns in {table}: {', '.join(cols)}."
+            )
+        for mismatch in self.type_mismatches:
+            messages.append(f"Type mismatch: {mismatch}.")
+        return messages
+
+    def get_user_message(self) -> str:
+        """Return a single combined message string."""
+        return "\n".join(self.get_user_messages())
 
 
 # Global loader instance

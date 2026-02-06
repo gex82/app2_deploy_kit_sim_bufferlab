@@ -142,34 +142,29 @@ class BufferEngine:
         if not self.loader.loaded_tables.get("lifecycle"):
             return pl.DataFrame()
 
-        lifecycle = self.loader.get_table("lifecycle")
-        if lifecycle is None or len(lifecycle) == 0:
+        columns = set(self.loader.table_stats.get("lifecycle", {}).get("columns", []))
+        has_eol = "eol_date" in columns
+        has_ltb = "ltb_date" in columns
+        if not has_eol and not has_ltb:
             return pl.DataFrame()
 
-        today = date.today()
-        cols = lifecycle.columns
-        eol_col = "eol_date" if "eol_date" in cols else None
-        ltb_col = "ltb_date" if "ltb_date" in cols else None
+        eol_expr = "eol_date" if has_eol else "NULL"
+        ltb_expr = "ltb_date" if has_ltb else "NULL"
 
-        if eol_col is None and ltb_col is None:
-            return pl.DataFrame()
-
-        lifecycle = lifecycle.with_columns([
-            pl.when(pl.col(eol_col).is_not_null()).then(pl.col(eol_col)).otherwise(None).alias("eol_date")
-        ]) if eol_col else lifecycle.with_columns([pl.lit(None).alias("eol_date")])
-        lifecycle = lifecycle.with_columns([
-            pl.when(pl.col(ltb_col).is_not_null()).then(pl.col(ltb_col)).otherwise(None).alias("ltb_date")
-        ]) if ltb_col else lifecycle.with_columns([pl.lit(None).alias("ltb_date")])
-
-        lifecycle = lifecycle.with_columns([
-            pl.min_horizontal(["eol_date", "ltb_date"]).alias("risk_date")
-        ])
-
-        lifecycle = lifecycle.with_columns([
-            (pl.col("risk_date") - pl.lit(today)).dt.days().alias("days_to_risk")
-        ])
-
-        return lifecycle.select(["item_id", "days_to_risk"])
+        return self.loader.query(f"""
+            SELECT
+                item_id,
+                CASE
+                    WHEN {eol_expr} IS NOT NULL AND {ltb_expr} IS NOT NULL THEN
+                        DATEDIFF('day', CURRENT_DATE, LEAST({eol_expr}, {ltb_expr}))
+                    WHEN {eol_expr} IS NOT NULL THEN
+                        DATEDIFF('day', CURRENT_DATE, {eol_expr})
+                    WHEN {ltb_expr} IS NOT NULL THEN
+                        DATEDIFF('day', CURRENT_DATE, {ltb_expr})
+                    ELSE NULL
+                END as days_to_risk
+            FROM lifecycle
+        """)
 
     def _assign_risk_flags(self, items: pl.DataFrame) -> pl.DataFrame:
         """
